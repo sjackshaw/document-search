@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benefits AI Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #d0d7de;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; color: #24292f; }
+
+    #new-chat-btn {
+      padding: 6px 14px;
+      font-size: 13px;
+      background: #0969da;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #new-chat-btn:hover { background: #0860ca; }
+
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: #0969da;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-bottom-left-radius: 4px;
+    }
+
+    .message.error {
+      align-self: flex-start;
+      background: #fff0f0;
+      border: 1px solid #e5534b;
+      color: #cf222e;
+    }
+
+    .sources {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .sources summary {
+      cursor: pointer;
+      font-weight: 500;
+      color: #0969da;
+    }
+
+    .sources ul {
+      margin-top: 4px;
+      padding-left: 18px;
+    }
+
+    .sources li { margin-bottom: 2px; }
+
+    .input-area {
+      background: #fff;
+      border-top: 1px solid #d0d7de;
+      padding: 16px 24px;
+    }
+
+    .input-row {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      gap: 8px;
+    }
+
+    .input-row textarea {
+      flex: 1;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      resize: none;
+      outline: none;
+      min-height: 44px;
+      max-height: 120px;
+    }
+
+    .input-row textarea:focus {
+      border-color: #0969da;
+      box-shadow: 0 0 0 3px rgba(9,105,218,0.15);
+    }
+
+    .input-row button {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      background: #0969da;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+
+    .input-row button:hover { background: #0860ca; }
+    .input-row button:disabled { background: #8db8e0; cursor: wait; }
+
+    .welcome {
+      text-align: center;
+      color: #656d76;
+      margin-top: 80px;
+    }
+
+    .welcome h2 { font-size: 22px; color: #24292f; margin-bottom: 8px; }
+    .welcome p { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Benefits AI Chat</h1>
+    <button id="new-chat-btn">New Chat</button>
+  </header>
+
+  <div class="chat-container" id="chat">
+    <div class="welcome">
+      <h2>Ask about your benefits</h2>
+      <p>Ask any question about health insurance, 401(k), PTO, FMLA, dental, vision, and more.</p>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <textarea id="question" rows="1" placeholder="Ask a question about your benefits..." autofocus></textarea>
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const questionEl = document.getElementById('question');
+    const sendBtn = document.getElementById('send-btn');
+    const newChatBtn = document.getElementById('new-chat-btn');
+
+    let sessionId = null;
+    let sending = false;
+
+    // Auto-resize textarea
+    questionEl.addEventListener('input', () => {
+      questionEl.style.height = 'auto';
+      questionEl.style.height = Math.min(questionEl.scrollHeight, 120) + 'px';
+    });
+
+    questionEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    newChatBtn.addEventListener('click', () => {
+      sessionId = null;
+      chatEl.innerHTML = `
+        <div class="welcome">
+          <h2>Ask about your benefits</h2>
+          <p>Ask any question about health insurance, 401(k), PTO, FMLA, dental, vision, and more.</p>
+        </div>`;
+      questionEl.focus();
+    });
+
+    async function sendMessage() {
+      const question = questionEl.value.trim();
+      if (!question || sending) return;
+
+      // Remove welcome if present
+      const welcome = chatEl.querySelector('.welcome');
+      if (welcome) welcome.remove();
+
+      // Show user message
+      appendMessage('user', question);
+      questionEl.value = '';
+      questionEl.style.height = 'auto';
+      sending = true;
+      sendBtn.disabled = true;
+
+      // Create assistant bubble
+      const assistantEl = appendMessage('assistant', '');
+      const cursor = document.createElement('span');
+      cursor.textContent = '▍';
+      cursor.style.animation = 'none';
+      assistantEl.appendChild(cursor);
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, sessionId }),
+        });
+
+        // Capture session ID from response header
+        const newSessionId = response.headers.get('X-Session-Id');
+        if (newSessionId) sessionId = newSessionId;
+
+        // Parse sources from header
+        let sources = [];
+        const sourcesHeader = response.headers.get('X-Sources');
+        if (sourcesHeader) {
+          try { sources = JSON.parse(atob(sourcesHeader)); } catch {}
+        }
+
+        // Read the SSE stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.token) {
+                cursor.before(document.createTextNode(data.token));
+              }
+              if (data.error) {
+                assistantEl.classList.add('error');
+                cursor.before(document.createTextNode('Error: ' + data.error));
+              }
+            } catch {}
+          }
+        }
+
+        cursor.remove();
+
+        // Append sources
+        if (sources.length > 0) {
+          const sourcesEl = document.createElement('div');
+          sourcesEl.classList.add('sources');
+          sourcesEl.innerHTML = `<details><summary>${sources.length} source(s) referenced</summary><ul>${
+            sources.map(s => `<li>${escapeHtml(s.title)} (${escapeHtml(s.category || '')})</li>`).join('')
+          }</ul></details>`;
+          assistantEl.appendChild(sourcesEl);
+        }
+      } catch (err) {
+        cursor.remove();
+        assistantEl.classList.add('error');
+        assistantEl.textContent = 'Failed to get a response. Is the server running?';
+      }
+
+      sending = false;
+      sendBtn.disabled = false;
+      questionEl.focus();
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function appendMessage(role, text) {
+      const el = document.createElement('div');
+      el.classList.add('message', role);
+      el.textContent = text;
+      chatEl.appendChild(el);
+      chatEl.scrollTop = chatEl.scrollHeight;
+      return el;
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+  </script>
+</body>
+</html>

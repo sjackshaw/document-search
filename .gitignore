@@ -1,0 +1,8 @@
+node_modules
+data-output
+.env
+*.pyc
+__pycache__
+services/etl-documents/data/pdfs/
+services/etl-webcrawl/data/pages/
+services/etl-webcrawl/data/web_manifest.json

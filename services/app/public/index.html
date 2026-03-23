@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document &amp; Web Search</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #d0d7de;
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #24292f;
+    }
+
+    .search-area {
+      max-width: 800px;
+      margin: 32px auto 0;
+      padding: 0 24px;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 8px;
+    }
+
+    .search-box input {
+      flex: 1;
+      padding: 12px 16px;
+      font-size: 15px;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      outline: none;
+      background: #fff;
+      transition: border-color 0.15s;
+    }
+
+    .search-box input:focus {
+      border-color: #0969da;
+      box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+    }
+
+    .search-box button {
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 500;
+      background: #0969da;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .search-box button:hover { background: #0860ca; }
+    .search-box button:disabled { background: #8db8e0; cursor: wait; }
+
+    .meta {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #656d76;
+    }
+
+    .results {
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 24px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      padding: 20px 24px;
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+
+    .card:hover {
+      border-color: #0969da;
+      box-shadow: 0 2px 8px rgba(9, 105, 218, 0.12);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0969da;
+      line-height: 1.4;
+    }
+
+    .card-badge {
+      flex-shrink: 0;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: #ddf4ff;
+      color: #0969da;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+
+    .card-extract {
+      font-size: 14px;
+      line-height: 1.65;
+      color: #424a53;
+      display: -webkit-box;
+      -webkit-line-clamp: 12;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-footer {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #8b949e;
+    }
+
+    .spinner {
+      display: none;
+      text-align: center;
+      padding: 40px;
+      color: #656d76;
+      font-size: 14px;
+    }
+
+    .spinner.active { display: block; }
+
+    .no-results {
+      text-align: center;
+      padding: 48px 24px;
+      color: #656d76;
+    }
+
+    .no-results h2 { font-size: 18px; margin-bottom: 8px; color: #424a53; }
+
+    .tabs {
+      max-width: 800px;
+      margin: 16px auto 0;
+      padding: 0 24px;
+      display: flex;
+      gap: 4px;
+    }
+
+    .tab {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      color: #656d76;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .tab.active {
+      background: #0969da;
+      color: #fff;
+      border-color: #0969da;
+    }
+
+    .tab:hover:not(.active) { background: #f6f8fa; color: #24292f; }
+
+    .card-badge.web {
+      background: #dafbe1;
+      color: #1a7f37;
+    }
+
+    .source-icon {
+      font-size: 12px;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Document &amp; Web Search</h1>
+  </header>
+
+  <div class="search-area">
+    <form class="search-box" id="searchForm">
+      <input type="text" id="queryInput" placeholder="Search benefits documents and web pages…" autocomplete="off" autofocus>
+      <button type="submit" id="searchBtn">Search</button>
+    </form>
+    <div class="meta" id="meta"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-source="all">All</div>
+    <div class="tab" data-source="documents">Documents</div>
+    <div class="tab" data-source="web">Web</div>
+  </div>
+
+  <div class="spinner" id="spinner">Searching…</div>
+  <div class="results" id="results"></div>
+
+  <script>
+    const form = document.getElementById('searchForm');
+    const input = document.getElementById('queryInput');
+    const btn = document.getElementById('searchBtn');
+    const resultsEl = document.getElementById('results');
+    const metaEl = document.getElementById('meta');
+    const spinnerEl = document.getElementById('spinner');
+    const tabsEl = document.getElementById('tabs');
+    let activeSource = 'all';
+
+    // Tab switching
+    tabsEl.addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      tabsEl.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      activeSource = tab.dataset.source;
+      // Re-run search if there's a query
+      if (input.value.trim()) {
+        form.dispatchEvent(new Event('submit'));
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q) return;
+
+      btn.disabled = true;
+      resultsEl.innerHTML = '';
+      metaEl.textContent = '';
+      spinnerEl.classList.add('active');
+
+      try {
+        // Choose endpoint based on active tab
+        let endpoint;
+        if (activeSource === 'web') {
+          endpoint = `/api/search/web?q=${encodeURIComponent(q)}&limit=40`;
+        } else if (activeSource === 'documents') {
+          endpoint = `/api/search?q=${encodeURIComponent(q)}&limit=40`;
+        } else {
+          endpoint = `/api/search/all?q=${encodeURIComponent(q)}&limit=40`;
+        }
+
+        const res = await fetch(endpoint);
+        const data = await res.json();
+
+        if (!res.ok) {
+          resultsEl.innerHTML = `<div class="no-results"><h2>Error</h2><p>${data.error || 'Search failed'}</p></div>`;
+          return;
+        }
+
+        if (activeSource === 'all') {
+          renderUnifiedResults(data);
+        } else if (activeSource === 'web') {
+          renderWebResults(data);
+        } else {
+          renderDocumentResults(data);
+        }
+      } catch (err) {
+        resultsEl.innerHTML = `<div class="no-results"><h2>Error</h2><p>${escapeHtml(err.message)}</p></div>`;
+      } finally {
+        btn.disabled = false;
+        spinnerEl.classList.remove('active');
+      }
+    });
+
+    function renderDocumentResults(data) {
+      // Group chunks by document, keep best (lowest distance) first
+      const docMap = new Map();
+      for (const row of data.results) {
+        const key = row.filename;
+        if (!docMap.has(key)) {
+          docMap.set(key, {
+            filename: row.filename,
+            title: row.title,
+            category: row.category,
+            distance: row.distance,
+            chunks: [],
+          });
+        }
+        docMap.get(key).chunks.push(row);
+      }
+
+      const docs = Array.from(docMap.values())
+        .sort((a, b) => a.distance - b.distance);
+
+      metaEl.textContent = `${docs.length} document${docs.length !== 1 ? 's' : ''} found (${data.count} chunks matched)` +
+        (data.parsed?.category ? ` · filtered by ${data.parsed.category.replace(/_/g, ' ')}` : '');
+
+      if (docs.length === 0) {
+        resultsEl.innerHTML = '<div class="no-results"><h2>No results</h2><p>Try a different query.</p></div>';
+        return;
+      }
+
+      for (const doc of docs) {
+        const extract = buildExtract(doc.chunks.sort((a, b) => a.page_number - b.page_number || a.chunk_index - b.chunk_index));
+        const card = document.createElement('a');
+        card.className = 'card';
+        card.href = `/api/pdfs/${encodeURIComponent(doc.filename)}`;
+        card.target = '_blank';
+        card.rel = 'noopener';
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="card-title"><span class="source-icon">📄</span>${escapeHtml(doc.title)}</span>
+            <span class="card-badge">${escapeHtml(doc.category.replace(/_/g, ' '))}</span>
+          </div>
+          <div class="card-extract">${escapeHtml(extract)}</div>
+          <div class="card-footer">
+            ${escapeHtml(doc.filename)} · relevance: ${(1 - doc.distance).toFixed(3)}
+          </div>
+        `;
+        resultsEl.appendChild(card);
+      }
+    }
+
+    function renderWebResults(data) {
+      // Group chunks by URL
+      const srcMap = new Map();
+      for (const row of data.results) {
+        const key = row.url;
+        if (!srcMap.has(key)) {
+          srcMap.set(key, {
+            url: row.url,
+            title: row.title,
+            category: row.category,
+            distance: row.distance,
+            chunks: [],
+          });
+        }
+        srcMap.get(key).chunks.push(row);
+      }
+
+      const sources = Array.from(srcMap.values())
+        .sort((a, b) => a.distance - b.distance);
+
+      metaEl.textContent = `${sources.length} web page${sources.length !== 1 ? 's' : ''} found (${data.count} chunks matched)` +
+        (data.parsed?.category ? ` · filtered by ${data.parsed.category.replace(/_/g, ' ')}` : '');
+
+      if (sources.length === 0) {
+        resultsEl.innerHTML = '<div class="no-results"><h2>No results</h2><p>Try a different query.</p></div>';
+        return;
+      }
+
+      for (const src of sources) {
+        const extract = buildExtract(src.chunks.sort((a, b) => a.chunk_index - b.chunk_index));
+        // Extract filename from URL for serving
+        const urlParts = src.url.split('/');
+        const filename = urlParts[urlParts.length - 1] + '.html';
+        const card = document.createElement('a');
+        card.className = 'card';
+        card.href = `/api/web-pages/${encodeURIComponent(filename)}`;
+        card.target = '_blank';
+        card.rel = 'noopener';
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="card-title"><span class="source-icon">🌐</span>${escapeHtml(src.title)}</span>
+            <span class="card-badge web">${escapeHtml(src.category.replace(/_/g, ' '))}</span>
+          </div>
+          <div class="card-extract">${escapeHtml(extract)}</div>
+          <div class="card-footer">
+            ${escapeHtml(src.url)} · relevance: ${(1 - src.distance).toFixed(3)}
+          </div>
+        `;
+        resultsEl.appendChild(card);
+      }
+    }
+
+    function renderUnifiedResults(data) {
+      // Unified results have source_type, ref, section_label
+      const groupMap = new Map();
+      for (const row of data.results) {
+        const key = `${row.source_type}:${row.ref}`;
+        if (!groupMap.has(key)) {
+          groupMap.set(key, {
+            source_type: row.source_type,
+            ref: row.ref,
+            title: row.title,
+            category: row.category,
+            distance: row.distance,
+            chunks: [],
+          });
+        }
+        groupMap.get(key).chunks.push(row);
+      }
+
+      const items = Array.from(groupMap.values())
+        .sort((a, b) => a.distance - b.distance);
+
+      metaEl.textContent = `${items.length} result${items.length !== 1 ? 's' : ''} found (${data.count} chunks matched)` +
+        (data.parsed?.category ? ` · filtered by ${data.parsed.category.replace(/_/g, ' ')}` : '');
+
+      if (items.length === 0) {
+        resultsEl.innerHTML = '<div class="no-results"><h2>No results</h2><p>Try a different query.</p></div>';
+        return;
+      }
+
+      for (const item of items) {
+        const extract = buildExtract(item.chunks.sort((a, b) => a.chunk_index - b.chunk_index));
+        const isWeb = item.source_type === 'web';
+        const icon = isWeb ? '🌐' : '📄';
+        const badgeClass = isWeb ? 'card-badge web' : 'card-badge';
+
+        let href, footerRef;
+        if (isWeb) {
+          const urlParts = item.ref.split('/');
+          const filename = urlParts[urlParts.length - 1] + '.html';
+          href = `/api/web-pages/${encodeURIComponent(filename)}`;
+          footerRef = item.ref;
+        } else {
+          href = `/api/pdfs/${encodeURIComponent(item.ref)}`;
+          footerRef = item.ref;
+        }
+
+        const card = document.createElement('a');
+        card.className = 'card';
+        card.href = href;
+        card.target = '_blank';
+        card.rel = 'noopener';
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="card-title"><span class="source-icon">${icon}</span>${escapeHtml(item.title)}</span>
+            <span class="${badgeClass}">${escapeHtml(item.category.replace(/_/g, ' '))}</span>
+          </div>
+          <div class="card-extract">${escapeHtml(extract)}</div>
+          <div class="card-footer">
+            ${escapeHtml(footerRef)} · ${escapeHtml(item.source_type)} · relevance: ${(1 - item.distance).toFixed(3)}
+          </div>
+        `;
+        resultsEl.appendChild(card);
+      }
+    }
+
+    function buildExtract(sortedChunks) {
+      let extract = '';
+      for (const c of sortedChunks) {
+        if (extract.length > 0) extract += ' … ';
+        extract += c.chunk_text;
+        if (extract.split(/\s+/).length >= 500) break;
+      }
+      const words = extract.split(/\s+/);
+      if (words.length > 500) {
+        extract = words.slice(0, 500).join(' ') + '…';
+      }
+      return extract;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

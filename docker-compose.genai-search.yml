@@ -1,0 +1,46 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: document-search-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  genai-search:
+    build:
+      context: .
+      dockerfile: services/genai-search/Dockerfile
+    container_name: document-search-genai
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      PGHOST: ${PGHOST:-postgres}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-appdb}
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      RAG_TOP_K: ${RAG_TOP_K:-10}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-6000}
+      TRANSFORMERS_CACHE: /home/node/.cache/huggingface/hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - genai-model-cache:/home/node/.cache/huggingface/hub
+
+volumes:
+  ollama-models:
+  genai-model-cache:
