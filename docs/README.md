@@ -13,9 +13,10 @@ The setup script will:
 1. Create `.env` from `.env.example` if missing
 2. Generate 1,500 synthetic benefit PDFs (requires Python 3 + `fpdf2`)
 3. Generate ~700 synthetic benefits web pages
-4. Build all Docker images in parallel
-5. Start PostgreSQL, wait for healthy
-6. Start all services (search app, GenAI chat, both ETL pipelines, Ollama)
+4. Generate synthetic member benefits claims
+5. Build all Docker images in parallel
+6. Start PostgreSQL, wait for healthy
+7. Start all services (search app, GenAI chat, member benefits bot, all ETL pipelines, Ollama)
 
 ## Architecture
 
@@ -27,6 +28,10 @@ The setup script will:
 | **ollama** | 11434 | Local LLM inference server (default model: `qwen2.5:3b`) |
 | **etl-documents** | — | ETL pipeline — extracts PDF text, chunks, vectorises, loads to Postgres |
 | **etl-webcrawl** | — | ETL pipeline — processes HTML pages, chunks, vectorises, loads to Postgres |
+| **member-benefits-app** | 3002 | Separate member-facing benefits bot — member-scoped claims, plan details, and generated benefit documents |
+| **etl-claims-line** | — | ETL pipeline — vectorises synthetic member claims + claims activity logs, loads to Postgres (isolated from document search/GenAI) |
+
+The Member Benefits Bot pairs with document search: it lets an authenticated member ask a GenAI-style bot about their own benefits, claims, and plan details, and request generation of key benefit documents (EOB, SPD, enrollment/beneficiary forms) on demand. It runs independently on its own port and Postgres tables (`claims`, `claims_logs`), isolated from the document search schema.
 
 ### Data Flow
 
@@ -121,8 +126,9 @@ npm run dev:down        # Stop all services
 npm run dev:build       # Rebuild images
 npm run dev:logs        # Tail logs from all services
 npm run dev:ps          # Show running containers
-npm run generate-data      # Regenerate synthetic PDFs
-npm run generate-web-data  # Regenerate synthetic web pages
+npm run generate-data        # Regenerate synthetic PDFs
+npm run generate-web-data    # Regenerate synthetic web pages
+npm run generate-claims-data # Regenerate synthetic member benefits claims
 ```
 
 ## Project Structure
@@ -150,9 +156,21 @@ document-search/
 │   │   ├── data/pdfs/                # Generated PDFs (git-ignored)
 │   │   ├── Dockerfile
 │   │   └── package.json
-│   └── etl-webcrawl/                 # Web page ETL pipeline
-│       ├── vectorize.js              # Extract → chunk → embed → load
-│       ├── data/pages/               # Generated HTML pages (git-ignored)
+│   ├── etl-webcrawl/                 # Web page ETL pipeline
+│   │   ├── vectorize.js              # Extract → chunk → embed → load
+│   │   ├── data/pages/               # Generated HTML pages (git-ignored)
+│   │   ├── Dockerfile
+│   │   └── package.json
+│   ├── member-benefits-app/          # Member benefits bot (port 3002)
+│   │   ├── src/
+│   │   │   ├── index.js              # Routes, member resolution, document generation
+│   │   │   └── member-benefits.js    # Claims/plan queries, HTML document rendering
+│   │   ├── test/
+│   │   ├── Dockerfile
+│   │   └── package.json
+│   └── etl-claims-line/              # Claims ETL pipeline (isolated from doc search)
+│       ├── vectorize.js              # Extract → embed → load claims + claims_logs
+│       ├── data/                     # primary.json + logs.json (committed seed data)
 │       ├── Dockerfile
 │       └── package.json
 ├── lib/
@@ -167,7 +185,9 @@ document-search/
 │   ├── 07_web_sources_table.sql      # Web sources table
 │   ├── 08_web_sections_table.sql     # Web sections table
 │   ├── 09_web_chunks_table.sql       # Web chunks + HNSW index
-│   └── 10_web_stored_procedures.sql  # Web query + ETL procedures
+│   ├── 10_web_stored_procedures.sql  # Web query + ETL procedures
+│   ├── 11_claims.sql                 # claims table + HNSW index + procedures
+│   └── 12_claims_logs.sql            # claims_logs table + HNSW index + procedures
 ├── startup/
 │   ├── setup.sh                      # Bootstrap script
 │   └── teardown.sh                   # Cleanup script
@@ -176,8 +196,12 @@ document-search/
 ├── docker-compose.etl-documents.yml
 ├── docker-compose.etl-webcrawl.yml
 ├── docker-compose.genai-search.yml   # GenAI chat + Ollama
+├── docker-compose.etl-claims-line.yml
+├── docker-compose.member-benefits-app.yml
 ├── generate_synthetic.py             # PDF generation (1,500 docs)
 ├── generate_synthetic_web.py         # Web page generation (~700 pages)
+├── generate_synthetic_claims.py      # Synthetic member benefits claims generation
+├── seed_claims.py / seed_claims.sql  # Manual claims seed helper (alternative to etl-claims-line)
 ├── package.json
 ├── eslint.config.mjs
 ├── .env.example

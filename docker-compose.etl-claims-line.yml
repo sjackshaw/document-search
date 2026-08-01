@@ -1,0 +1,22 @@
+services:
+  etl-claims-line:
+    build: ./services/etl-claims-line
+    container_name: document-search-etl-claims-line
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: ${PGHOST:-postgres}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-appdb}
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      BATCH_SIZE: ${BATCH_SIZE:-64}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 * * * *}
+      TRANSFORMERS_CACHE: /home/node/.cache/huggingface/hub
+    volumes:
+      - model-cache:/home/node/.cache/huggingface/hub
+
+volumes:
+  model-cache:

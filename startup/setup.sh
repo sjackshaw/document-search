@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILES="-f docker-compose.postgres.yml -f docker-compose.app.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.genai-search.yml"
+COMPOSE_FILES="-f docker-compose.postgres.yml -f docker-compose.app.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.genai-search.yml -f docker-compose.etl-claims-line.yml -f docker-compose.member-benefits-app.yml"
 
 heading() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 ok()      { printf '    \033[1;32m✔ %s\033[0m\n' "$1"; }
@@ -46,6 +46,17 @@ else
   ok "Web pages generated"
 fi
 
+# ── 3c. Generate synthetic member benefits claims if missing ─────────
+heading "Synthetic claims data"
+CLAIMS_FILE="services/etl-claims-line/data/primary.json"
+if [ -f "$CLAIMS_FILE" ]; then
+  ok "Claims data already present ($(python3 -c "import json;print(len(json.load(open('$CLAIMS_FILE'))))") claims)"
+else
+  echo "    Generating synthetic member benefits claims..."
+  python3 generate_synthetic_claims.py
+  ok "Claims data generated"
+fi
+
 # ── 4. Build images ──────────────────────────────────────────────────
 heading "Building Docker images"
 docker compose $COMPOSE_FILES build --parallel
@@ -88,6 +99,7 @@ ok "Model ready"
 heading "Ready"
 echo "    App:          http://localhost:3000"
 echo "    GenAI Chat:   http://localhost:3001"
+echo "    Member Bot:   http://localhost:3002"
 echo "    Ollama:       http://localhost:11434"
 echo "    Postgres:     localhost:5433  (user: postgres / db: appdb)"
 echo ""
