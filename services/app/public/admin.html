@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Content Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #d0d7de;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; color: #24292f; }
+
+    .header-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .header-controls label { font-size: 13px; color: #57606a; }
+
+    .header-controls input {
+      padding: 5px 10px;
+      font-size: 13px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      width: 200px;
+    }
+
+    .header-controls a {
+      font-size: 13px;
+      color: #0969da;
+      text-decoration: none;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 28px auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 2px;
+      border-bottom: 2px solid #d0d7de;
+    }
+
+    .tab-btn {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      background: none;
+      cursor: pointer;
+      color: #57606a;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+
+    .tab-btn.active {
+      color: #0969da;
+      border-bottom-color: #0969da;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    section {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      border-bottom: 1px solid #d0d7de;
+      background: #f6f8fa;
+    }
+
+    .section-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #24292f;
+    }
+
+    .section-header .count {
+      font-size: 12px;
+      color: #57606a;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 9px 14px;
+      font-weight: 600;
+      color: #57606a;
+      background: #f6f8fa;
+      border-bottom: 1px solid #d0d7de;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #eaecef;
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f6f8fa; }
+
+    .title-cell {
+      max-width: 300px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .category-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #ddf4ff;
+      color: #0550ae;
+      border: 1px solid #54aeff;
+    }
+
+    .action-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid #d0d7de;
+      background: #fff;
+      color: #24292f;
+    }
+
+    .action-btn:hover { background: #f6f8fa; }
+
+    .action-btn.danger {
+      color: #cf222e;
+      border-color: #e5534b;
+    }
+
+    .action-btn.danger:hover { background: #fff0f0; }
+
+    .action-btn.primary {
+      background: #0969da;
+      color: #fff;
+      border-color: #0969da;
+    }
+
+    .action-btn.primary:hover { background: #0860ca; }
+
+    .actions-cell { display: flex; gap: 6px; white-space: nowrap; }
+
+    /* Inline edit form */
+    .edit-form {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .edit-form input, .edit-form select {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      outline: none;
+    }
+
+    .edit-form input:focus, .edit-form select:focus {
+      border-color: #0969da;
+      box-shadow: 0 0 0 2px rgba(9,105,218,0.15);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      background: #1a7f37;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+
+    .toast.error { background: #cf222e; }
+    .toast.show { opacity: 1; }
+
+    .empty { padding: 24px 20px; color: #57606a; font-size: 13px; font-style: italic; }
+
+    #loading { text-align: center; padding: 48px; color: #57606a; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Content Admin</h1>
+  <div class="header-controls">
+    <label for="admin-key-input">Admin key:</label>
+    <input type="password" id="admin-key-input" placeholder="Leave blank if none set">
+    <a href="/">&#8592; Back to Search</a>
+  </div>
+</header>
+
+<div id="toast" class="toast"></div>
+
+<main>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="documents">Documents</button>
+    <button class="tab-btn" data-tab="etl">ETL Job History</button>
+  </div>
+
+  <div id="loading">Loading&hellip;</div>
+
+  <!-- Documents tab -->
+  <div id="tab-documents" class="tab-panel active">
+    <section>
+      <div class="section-header">
+        <h2>Indexed Documents</h2>
+        <span class="count" id="doc-count"></span>
+      </div>
+      <div id="doc-table-wrap"></div>
+    </section>
+  </div>
+
+  <!-- ETL history tab -->
+  <div id="tab-etl" class="tab-panel">
+    <section>
+      <div class="section-header">
+        <h2>ETL Job History</h2>
+      </div>
+      <div id="etl-table-wrap"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+  const KNOWN_CATEGORIES = ['health', 'dental', 'vision', 'retirement', 'pto', 'fmla', 'general', 'other'];
+
+  let documents = [];
+  let editingId = null;
+
+  // ── Tab switching ─────────────────────────────────────────────────────────
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ── Load data ─────────────────────────────────────────────────────────────
+
+  async function loadDocuments() {
+    try {
+      const r = await fetch('/api/documents?limit=500');
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      documents = data.documents || [];
+      document.getElementById('doc-count').textContent = `${documents.length} documents`;
+      renderDocuments();
+    } catch (err) {
+      document.getElementById('doc-table-wrap').innerHTML = `<div class="empty">Failed to load: ${escHtml(err.message)}</div>`;
+    }
+  }
+
+  async function loadEtlJobs() {
+    try {
+      const r = await fetch('/api/etl-jobs');
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      renderEtlJobs(data.jobs || []);
+    } catch (err) {
+      document.getElementById('etl-table-wrap').innerHTML = `<div class="empty">Failed to load: ${escHtml(err.message)}</div>`;
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  function renderDocuments() {
+    const wrap = document.getElementById('doc-table-wrap');
+    if (documents.length === 0) {
+      wrap.innerHTML = '<div class="empty">No documents indexed yet.</div>';
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title / Filename</th>
+            <th>Category</th>
+            <th>Pages</th>
+            <th>Indexed</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="doc-tbody"></tbody>
+      </table>`;
+
+    const tbody = document.getElementById('doc-tbody');
+    for (const doc of documents) {
+      tbody.appendChild(buildDocRow(doc));
+    }
+  }
+
+  function buildDocRow(doc) {
+    const tr = document.createElement('tr');
+    tr.id = `row-${doc.id}`;
+
+    if (editingId === doc.id) {
+      tr.innerHTML = `
+        <td>${doc.id}</td>
+        <td colspan="3">
+          <div class="edit-form">
+            <input id="edit-title-${doc.id}" value="${escHtml(doc.title)}" placeholder="Title" style="width:220px">
+            <select id="edit-cat-${doc.id}">
+              ${KNOWN_CATEGORIES.map(c => `<option value="${c}" ${c === doc.category ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+            <button class="action-btn primary" onclick="saveEdit(${doc.id})">Save</button>
+            <button class="action-btn" onclick="cancelEdit()">Cancel</button>
+          </div>
+        </td>
+        <td>${new Date(doc.created_at).toLocaleDateString()}</td>
+        <td></td>`;
+    } else {
+      tr.innerHTML = `
+        <td>${doc.id}</td>
+        <td><span class="title-cell" title="${escHtml(doc.filename)}">${escHtml(doc.title)}</span></td>
+        <td><span class="category-badge">${escHtml(doc.category)}</span></td>
+        <td>${doc.page_count}</td>
+        <td>${new Date(doc.created_at).toLocaleDateString()}</td>
+        <td>
+          <div class="actions-cell">
+            <button class="action-btn" onclick="startEdit(${doc.id})">Edit</button>
+            <button class="action-btn danger" onclick="deleteDoc(${doc.id}, '${escHtml(doc.title)}')">Remove</button>
+          </div>
+        </td>`;
+    }
+    return tr;
+  }
+
+  function renderEtlJobs(jobs) {
+    const wrap = document.getElementById('etl-table-wrap');
+    if (jobs.length === 0) {
+      wrap.innerHTML = '<div class="empty">No ETL job history yet.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Job Name</th><th>Status</th><th>Records</th><th>Started</th><th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${jobs.map(j => `
+            <tr>
+              <td>${j.id}</td>
+              <td>${escHtml(j.job_name || '')}</td>
+              <td><span class="category-badge" style="${j.status === 'success' ? 'background:#dafbe1;color:#116329;border-color:#2da44e' : 'background:#fff0f0;color:#cf222e;border-color:#e5534b'}">${escHtml(j.status || '')}</span></td>
+              <td>${j.records_processed ?? '—'}</td>
+              <td>${j.started_at ? new Date(j.started_at).toLocaleString() : '—'}</td>
+              <td>${j.duration_ms != null ? (j.duration_ms / 1000).toFixed(1) + 's' : '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ── Edit actions ──────────────────────────────────────────────────────────
+
+  function startEdit(id) {
+    editingId = id;
+    renderDocuments();
+    const input = document.getElementById(`edit-title-${id}`);
+    if (input) input.focus();
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    renderDocuments();
+  }
+
+  async function saveEdit(id) {
+    const title = document.getElementById(`edit-title-${id}`)?.value.trim();
+    const category = document.getElementById(`edit-cat-${id}`)?.value;
+    if (!title) { showToast('Title cannot be empty', true); return; }
+
+    try {
+      const r = await fetch(`/api/documents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey() },
+        body: JSON.stringify({ title, category }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      const { document: updated } = await r.json();
+      const idx = documents.findIndex(d => d.id === id);
+      if (idx !== -1) { documents[idx] = { ...documents[idx], ...updated }; }
+      editingId = null;
+      renderDocuments();
+      showToast('Document updated');
+    } catch (err) {
+      showToast(`Save failed: ${err.message}`, true);
+    }
+  }
+
+  async function deleteDoc(id, title) {
+    if (!confirm(`Remove "${title}" from the search index?\n\nThis removes all associated pages and chunks. The source file is not deleted.`)) return;
+    try {
+      const r = await fetch(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Admin-Key': adminKey() },
+      });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      documents = documents.filter(d => d.id !== id);
+      document.getElementById('doc-count').textContent = `${documents.length} documents`;
+      renderDocuments();
+      showToast('Document removed from index');
+    } catch (err) {
+      showToast(`Delete failed: ${err.message}`, true);
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function adminKey() {
+    return document.getElementById('admin-key-input').value.trim();
+  }
+
+  let toastTimer = null;
+  function showToast(msg, isError = false) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast' + (isError ? ' error' : '') + ' show';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.classList.remove('show'); }, 3000);
+  }
+
+  function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = String(str ?? '');
+    return d.innerHTML;
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  Promise.all([loadDocuments(), loadEtlJobs()]).then(() => {
+    document.getElementById('loading').style.display = 'none';
+  });
+</script>
+</body>
+</html>

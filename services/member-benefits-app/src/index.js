@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const benefits = require('./member-benefits');
+const { detectEscalation } = require('./escalation');
+const { compareEnrollmentOptions } = require('./enrollment');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3002', 10);
@@ -16,6 +18,21 @@ const pool = new Pool({
 });
 
 app.use(express.json({ limit: '1mb' }));
+
+// ── Chat log helper ───────────────────────────────────────────────────────────
+
+async function logBotQuery(question, escalationFlagged, escalationSignals) {
+  try {
+    await pool.query(
+      `INSERT INTO chat_logs
+         (service, question, escalation_flagged, escalation_signals)
+       VALUES ('member-bot', $1, $2, $3)`,
+      [question, escalationFlagged, escalationSignals],
+    );
+  } catch (err) {
+    console.error('chat_logs insert failed:', err.message);
+  }
+}
 
 app.get('/', (_req, res) => {
   const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
@@ -171,24 +188,50 @@ app.post('/api/documents/:type', async (req, res) => {
 
 app.post('/api/bot', async (req, res) => {
   const prompt = String(req.body.prompt || '').toLowerCase();
+  const rawPrompt = String(req.body.prompt || '');
+
+  // Detect escalation signals before answering
+  const { flagged: escalationFlagged, signals: escalationSignals } = detectEscalation(rawPrompt);
+  logBotQuery(rawPrompt, escalationFlagged, escalationSignals);
+
   try {
+    let response;
     if (prompt.includes('open') || prompt.includes('pending') || prompt.includes('appeal')) {
       const claims = await benefits.getOpenClaims(pool, req.user);
-      return res.json({ tool: 'get_open_claims', message: `You have ${claims.length} open claims.`, data: claims });
-    }
-    if (prompt.includes('deductible')) {
+      response = { tool: 'get_open_claims', message: `You have ${claims.length} open claims.`, data: claims };
+    } else if (prompt.includes('deductible')) {
       const deductible = await benefits.getDeductibleStatus(pool, req.user, new Date().getFullYear());
-      return res.json({ tool: 'get_deductible_status', message: 'Here is your current deductible status.', data: deductible });
-    }
-    if (prompt.includes('dental') || prompt.includes('vision') || prompt.includes('medical') || prompt.includes('rx')) {
+      response = { tool: 'get_deductible_status', message: 'Here is your current deductible status.', data: deductible };
+    } else if (prompt.includes('dental') || prompt.includes('vision') || prompt.includes('medical') || prompt.includes('rx')) {
       const planType = ['dental', 'vision', 'medical', 'rx'].find(type => prompt.includes(type)) || 'medical';
-      return res.json({ tool: 'get_plan_details', message: `Here are your ${planType} plan details.`, data: benefits.getPlanDetails(planType) });
+      response = { tool: 'get_plan_details', message: `Here are your ${planType} plan details.`, data: benefits.getPlanDetails(planType) };
+    } else {
+      const summary = await benefits.getClaimsSummary(pool, req.user, null);
+      response = { tool: 'get_claims_summary', message: 'Here is your claims summary.', data: summary };
     }
-    const summary = await benefits.getClaimsSummary(pool, req.user, null);
-    return res.json({ tool: 'get_claims_summary', message: 'Here is your claims summary.', data: summary });
+
+    if (escalationFlagged) {
+      response.escalationFlagged = true;
+      response.escalationNotice = 'Your message has been flagged for support desk review. A benefits specialist will follow up with you shortly.';
+    }
+
+    return res.json(response);
   } catch (err) {
     console.error('Bot request failed:', err);
     return res.status(500).json({ error: 'Unable to answer benefits question' });
+  }
+});
+
+app.get('/api/enrollment/compare', async (req, res) => {
+  try {
+    const referenceYear = req.query.planYear
+      ? parseInt(req.query.planYear, 10)
+      : new Date().getFullYear() - 1;
+    const comparison = await compareEnrollmentOptions(pool, req.user, referenceYear);
+    res.json({ member: req.user, ...comparison });
+  } catch (err) {
+    console.error('Enrollment comparison failed:', err);
+    res.status(500).json({ error: 'Unable to generate enrollment comparison' });
   }
 });
 
