@@ -154,12 +154,48 @@
 
     .welcome h2 { font-size: 22px; color: #24292f; margin-bottom: 8px; }
     .welcome p { font-size: 14px; }
+
+    .feedback-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .feedback-btn {
+      background: none;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #57606a;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .feedback-btn:hover { background: #f6f8fa; border-color: #aab; }
+    .feedback-btn.selected-up   { background: #dafbe1; border-color: #2da44e; color: #116329; }
+    .feedback-btn.selected-down { background: #fff0f0; border-color: #e5534b; color: #cf222e; }
+
+    .escalation-notice {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #fff8c5;
+      border: 1px solid #d4a72c;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #633c01;
+    }
+
+    .escalation-notice strong { font-weight: 600; }
   </style>
 </head>
 <body>
   <header>
     <h1>Benefits AI Chat</h1>
-    <button id="new-chat-btn">New Chat</button>
+    <div style="display:flex;gap:10px;align-items:center">
+      <a href="/analytics.html" style="font-size:13px;color:#0969da;text-decoration:none">Analytics</a>
+      <button id="new-chat-btn">New Chat</button>
+    </div>
   </header>
 
   <div class="chat-container" id="chat">
@@ -243,6 +279,9 @@
         const newSessionId = response.headers.get('X-Session-Id');
         if (newSessionId) sessionId = newSessionId;
 
+        const chatLogId = response.headers.get('X-Chat-Log-Id');
+        const escalationFlagged = response.headers.get('X-Escalation-Flagged') === 'true';
+
         // Parse sources from header
         let sources = [];
         const sourcesHeader = response.headers.get('X-Sources');
@@ -289,6 +328,25 @@
           }</ul></details>`;
           assistantEl.appendChild(sourcesEl);
         }
+
+        // Escalation notice
+        if (escalationFlagged) {
+          const noticeEl = document.createElement('div');
+          noticeEl.classList.add('escalation-notice');
+          noticeEl.innerHTML = '<strong>Support notice:</strong> Your question may benefit from direct assistance. Please contact the benefits support desk for personalised help.';
+          assistantEl.appendChild(noticeEl);
+        }
+
+        // Feedback buttons
+        if (chatLogId) {
+          const feedbackRow = document.createElement('div');
+          feedbackRow.classList.add('feedback-row');
+          feedbackRow.innerHTML = `
+            <span style="font-size:12px;color:#656d76;align-self:center">Was this helpful?</span>
+            <button class="feedback-btn" data-log-id="${escapeHtml(chatLogId)}" data-rating="up">&#128077;</button>
+            <button class="feedback-btn" data-log-id="${escapeHtml(chatLogId)}" data-rating="down">&#128078;</button>`;
+          assistantEl.appendChild(feedbackRow);
+        }
       } catch (err) {
         cursor.remove();
         assistantEl.classList.add('error');
@@ -315,6 +373,28 @@
       d.textContent = str;
       return d.innerHTML;
     }
+
+    // Feedback button handler (event delegation on chat container)
+    chatEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.feedback-btn');
+      if (!btn) return;
+      const logId = btn.dataset.logId;
+      const rating = btn.dataset.rating;
+      if (!logId || !rating) return;
+
+      try {
+        await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chatLogId: parseInt(logId, 10), rating }),
+        });
+        const row = btn.closest('.feedback-row');
+        if (row) {
+          row.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('selected-up', 'selected-down'));
+          btn.classList.add(rating === 'up' ? 'selected-up' : 'selected-down');
+        }
+      } catch {}
+    });
   </script>
 </body>
 </html>

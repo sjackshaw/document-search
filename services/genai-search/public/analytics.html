@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Analytics Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #d0d7de;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; color: #24292f; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .controls label { font-size: 13px; color: #57606a; }
+
+    .controls select {
+      padding: 5px 10px;
+      font-size: 13px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .controls a {
+      font-size: 13px;
+      color: #0969da;
+      text-decoration: none;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 28px auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+    }
+
+    .stat-card {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+
+    .stat-card .label {
+      font-size: 12px;
+      color: #57606a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .stat-card .value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #24292f;
+    }
+
+    .stat-card.warn .value { color: #9a6700; }
+    .stat-card.danger .value { color: #cf222e; }
+    .stat-card.good .value { color: #1a7f37; }
+
+    section {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    section h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #24292f;
+      padding: 14px 20px;
+      border-bottom: 1px solid #d0d7de;
+      background: #f6f8fa;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 16px;
+      font-weight: 600;
+      color: #57606a;
+      background: #f6f8fa;
+      border-bottom: 1px solid #d0d7de;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    td {
+      padding: 10px 16px;
+      border-bottom: 1px solid #eaecef;
+      vertical-align: top;
+      max-width: 0;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f6f8fa; }
+
+    .q-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 420px;
+      display: block;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .badge-down  { background: #fff0f0; color: #cf222e; border: 1px solid #e5534b; }
+    .badge-up    { background: #dafbe1; color: #116329; border: 1px solid #2da44e; }
+    .badge-no-src { background: #fff8c5; color: #633c01; border: 1px solid #d4a72c; }
+    .badge-short  { background: #f6f8fa; color: #57606a; border: 1px solid #d0d7de; }
+    .badge-esc    { background: #fff0f0; color: #cf222e; border: 1px solid #e5534b; }
+
+    .signals { font-size: 11px; color: #57606a; margin-top: 2px; }
+
+    .empty {
+      padding: 24px 20px;
+      color: #57606a;
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    #loading {
+      text-align: center;
+      padding: 48px;
+      color: #57606a;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Chat Analytics Dashboard</h1>
+    <div class="controls">
+      <label for="days-select">Window:</label>
+      <select id="days-select">
+        <option value="1">Last 24 h</option>
+        <option value="7" selected>Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+      <a href="/">&#8592; Back to Chat</a>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading">Loading analytics&hellip;</div>
+
+    <div class="stats-row" id="stats-row" style="display:none"></div>
+
+    <section id="gap-section" style="display:none">
+      <h2>Self-Service Gaps &mdash; Low Confidence / Negative Feedback Questions</h2>
+      <div id="gap-body"></div>
+    </section>
+
+    <section id="esc-section" style="display:none">
+      <h2>Escalation Flags</h2>
+      <div id="esc-body"></div>
+    </section>
+  </main>
+
+  <script>
+    const daysSelect = document.getElementById('days-select');
+    daysSelect.addEventListener('change', load);
+
+    async function load() {
+      const days = daysSelect.value;
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('stats-row').style.display = 'none';
+      document.getElementById('gap-section').style.display = 'none';
+      document.getElementById('esc-section').style.display = 'none';
+
+      try {
+        const [summary, questions, escalations] = await Promise.all([
+          fetch(`/api/analytics/summary?days=${days}`).then(r => r.json()),
+          fetch(`/api/analytics/questions?days=${days}&limit=30`).then(r => r.json()),
+          fetch(`/api/analytics/escalations?days=${days}&limit=30`).then(r => r.json()),
+        ]);
+
+        renderStats(summary);
+        renderGaps(questions.questions || []);
+        renderEscalations(escalations.escalations || []);
+      } catch (err) {
+        document.getElementById('loading').textContent = 'Failed to load analytics. Is the service running?';
+        return;
+      }
+
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    function renderStats(s) {
+      const total       = Number(s.total_queries || 0);
+      const escalations = Number(s.escalations || 0);
+      const feedUp      = Number(s.feedback_up || 0);
+      const feedDown    = Number(s.feedback_down || 0);
+      const noSrc       = Number(s.no_source_queries || 0);
+      const shortAns    = Number(s.short_answer_queries || 0);
+      const satisfaction = total > 0 && (feedUp + feedDown) > 0
+        ? Math.round((feedUp / (feedUp + feedDown)) * 100) + '%'
+        : 'n/a';
+
+      const row = document.getElementById('stats-row');
+      row.innerHTML = `
+        <div class="stat-card">
+          <div class="label">Total Queries</div>
+          <div class="value">${total}</div>
+        </div>
+        <div class="stat-card ${escalations > 0 ? 'danger' : ''}">
+          <div class="label">Escalations</div>
+          <div class="value">${escalations}</div>
+        </div>
+        <div class="stat-card ${feedUp > 0 ? 'good' : ''}">
+          <div class="label">Positive Feedback</div>
+          <div class="value">${feedUp}</div>
+        </div>
+        <div class="stat-card ${feedDown > 0 ? 'danger' : ''}">
+          <div class="label">Negative Feedback</div>
+          <div class="value">${feedDown}</div>
+        </div>
+        <div class="stat-card ${noSrc > 0 ? 'warn' : ''}">
+          <div class="label">No Sources Found</div>
+          <div class="value">${noSrc}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Satisfaction Rate</div>
+          <div class="value">${satisfaction}</div>
+        </div>`;
+      row.style.display = 'grid';
+    }
+
+    function renderGaps(questions) {
+      const section = document.getElementById('gap-section');
+      const body    = document.getElementById('gap-body');
+      if (questions.length === 0) {
+        body.innerHTML = '<div class="empty">No gap indicators in this period.</div>';
+      } else {
+        body.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Question</th>
+                <th>Service</th>
+                <th>Sources</th>
+                <th>Feedback</th>
+                <th>Asked</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${questions.map(q => {
+                let badge = '';
+                if (q.rating === 'down') badge = '<span class="badge badge-down">&#128078; thumbs down</span>';
+                else if (q.sources_count === 0) badge = '<span class="badge badge-no-src">no sources</span>';
+                else if (q.answer_length > 0 && q.answer_length < 80) badge = '<span class="badge badge-short">short answer</span>';
+                return `<tr>
+                  <td><span class="q-text" title="${escHtml(q.question)}">${escHtml(q.question)}</span></td>
+                  <td>${escHtml(q.service)}</td>
+                  <td>${q.sources_count}</td>
+                  <td>${badge}</td>
+                  <td>${new Date(q.created_at).toLocaleString()}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`;
+      }
+      section.style.display = 'block';
+    }
+
+    function renderEscalations(escalations) {
+      const section = document.getElementById('esc-section');
+      const body    = document.getElementById('esc-body');
+      if (escalations.length === 0) {
+        body.innerHTML = '<div class="empty">No escalation flags in this period.</div>';
+      } else {
+        body.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Question</th>
+                <th>Service</th>
+                <th>Signals</th>
+                <th>Flagged At</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${escalations.map(e => `
+                <tr>
+                  <td><span class="q-text" title="${escHtml(e.question)}">${escHtml(e.question)}</span></td>
+                  <td>${escHtml(e.service)}</td>
+                  <td><div class="signals">${(e.escalation_signals || []).map(s => `<span class="badge badge-esc">${escHtml(s)}</span>`).join(' ')}</div></td>
+                  <td>${new Date(e.created_at).toLocaleString()}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`;
+      }
+      section.style.display = 'block';
+    }
+
+    function escHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = String(str ?? '');
+      return d.innerHTML;
+    }
+
+    load();
+  </script>
+</body>
+</html>

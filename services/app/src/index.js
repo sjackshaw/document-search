@@ -298,6 +298,69 @@ app.get('/api/web-sources', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+
+// ── Admin middleware ──────────────────────────────────────────────────────────
+
+function requireAdmin(req, res, next) {
+  if (ADMIN_KEY && req.headers['x-admin-key'] !== ADMIN_KEY) {
+    return res.status(401).json({ error: 'Admin key required' });
+  }
+  return next();
+}
+
+// ── Admin document management ─────────────────────────────────────────────────
+
+// Update a document's title or category
+app.patch('/api/documents/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid document id' });
+
+    const { title, category } = req.body;
+    if (!title && !category) {
+      return res.status(400).json({ error: 'Provide "title" or "category" to update' });
+    }
+
+    const setClauses = [];
+    const params = [];
+    if (title) { params.push(title); setClauses.push(`title = $${params.length}`); }
+    if (category) { params.push(category); setClauses.push(`category = $${params.length}`); }
+    params.push(id);
+    setClauses.push(`updated_at = now()`);
+
+    const result = await pool.query(
+      `UPDATE documents SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING id, filename, title, category`,
+      params,
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    res.json({ document: result.rows[0] });
+  } catch (err) {
+    console.error('Document update error:', err);
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
+// Remove a document from the index (cascades to pages and chunks via FK)
+app.delete('/api/documents/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid document id' });
+
+    const result = await pool.query(
+      'DELETE FROM documents WHERE id = $1 RETURNING id, filename, title',
+      [id],
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    res.json({ deleted: result.rows[0] });
+  } catch (err) {
+    console.error('Document delete error:', err);
+    res.status(500).json({ error: 'Delete failed' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Document search API listening on port ${PORT}`);
 });
