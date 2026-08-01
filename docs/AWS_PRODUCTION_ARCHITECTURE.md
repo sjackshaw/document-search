@@ -13,17 +13,19 @@ This document maps the current proof-of-concept (PoC) stack — built to run on 
 | **Vector Index** | PostgreSQL 15 + pgvector (HNSW) | Amazon OpenSearch Serverless (vector engine) or Amazon Aurora PostgreSQL + pgvector | Purpose-built vector search at scale with filtering |
 | **LLM** | Ollama + Qwen 2.5 3B (local, CPU) | Amazon Bedrock — Anthropic Claude 3.5 Sonnet or Amazon Nova Pro | Managed, fast, high-quality reasoning; no GPU management |
 | **Database** | PostgreSQL 15 (Docker) | Amazon Aurora PostgreSQL Serverless v2 | Auto-scaling, managed backups, high availability |
-| **Document Source** | Local PDF volume mounts | SharePoint Online (Microsoft 365) document libraries | Single source of truth for documents; managed by content owners in 365 |
-| **Web Content Source** | Local HTML file volume mounts | Umbraco CMS (web crawl) | Authoritative source for web-based benefits content |
+| **Document Source** | Local synthetic PDFs plus generated `manifest.json` | SharePoint Online (Microsoft 365) document libraries | Single source of truth for documents; managed by content owners in 365 |
+| **Web Content Source** | Local synthetic HTML plus generated `web_manifest.json` | Umbraco CMS (web crawl) | Authoritative source for web-based benefits content |
+| **Claims Source** | Local synthetic JSON files (`primary.json`, `logs.json`) | Carrier, TPA, or data-warehouse feeds via S3, API, or event stream | Replaces demo data with operational member claims events |
 | **Document Cache** | — | Amazon S3 (ETL staging) | Temporary cache during ETL; not the system of record |
+| **Generated Member Docs** | Local bind mount (`data-output/member-benefits-docs`) | Amazon S3 with presigned URLs | Durable storage and controlled download of generated member documents |
 | **ETL Orchestration** | node-cron in a container | AWS Step Functions + AWS Lambda | Event-driven, visual orchestration, pay-per-execution |
 | **ETL Auth to SharePoint** | — | Entra ID app registration (`Sites.Selected`, client credentials) → AWS Secrets Manager | Least-privilege access to specific SharePoint site(s) only |
 | **ETL Auth to Umbraco** | — | API key or basic auth → AWS Secrets Manager | Credentials for Umbraco Content Delivery API |
-| **PDF Processing** | pdf-parse in Node.js | Amazon Textract | OCR support, table extraction, higher accuracy |
+| **PDF Processing** | Synthetic manifest generated from local source files | Amazon Textract | Production ingestion will need managed text extraction from real source documents |
 | **Networking** | Docker bridge network | VPC, ALB, private subnets, NAT gateway | Network isolation, TLS termination, WAF integration |
 | **Secrets** | `.env` file / environment variables | AWS Secrets Manager | Audit trail, rotation, IAM-scoped access; stores Entra ID client credentials |
 | **Monitoring** | `docker logs` | CloudWatch Logs, CloudWatch Metrics, X-Ray | Dashboards, alarms, distributed tracing |
-| **Auth** | None (API key) | Amazon Cognito + ALB OIDC integration | SSO, MFA, user management |
+| **Auth** | Search/chat are open in local dev; member app uses API key plus member identity header | Amazon Cognito + ALB OIDC integration | SSO, MFA, user management, and downstream member identity |
 | **CDN / Frontend** | Express static files | CloudFront + S3 (static hosting) | Global edge caching, HTTPS |
 
 ---
@@ -87,7 +89,7 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 
 ### 4. Compute
 
-**PoC:** Four Node.js containers running under Docker Compose.
+**PoC:** Six Node.js containers running under Docker Compose.
 
 **AWS Production:**
 
@@ -95,25 +97,33 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 |---|---|
 | **Search API** | ECS Fargate (or App Runner for simplicity) behind ALB |
 | **GenAI Chat API** | ECS Fargate behind ALB — separate service for independent scaling |
-| **ETL Pipeline** | AWS Step Functions → Lambda functions (or ECS Fargate tasks for long-running jobs) |
+| **Member Benefits API** | ECS Fargate behind ALB — separate service for member-scoped traffic and document generation |
+| **ETL Pipelines** | AWS Step Functions → Lambda functions (or ECS Fargate tasks for long-running jobs) |
 
 **Recommendation:** **ECS Fargate** for the API services. Fargate removes all server management — you define CPU/memory per task, set auto-scaling rules, and deploy via CI/CD.
 
 - Search API: 0.5 vCPU / 1 GB (scales on request count)
-- GenAI Chat API: 0.5 vCPU / 1 GB (scales on request count — LLM work is offloaded to Bedrock)
-- ETL: Step Functions orchestrating Lambda functions. Lambda handles the chunking and calls Bedrock for embeddings. For PDF processing, use Textract async jobs.
+- GenAI Chat API: 0.5 vCPU / 1 GB (scales on request count; LLM work is offloaded to Bedrock)
+- Member Benefits API: 0.5 vCPU / 1 GB to start; scale on request count and document-generation volume
+- ETL: Step Functions orchestrating Lambda functions. Lambda handles chunking, structured transforms, and Bedrock embedding calls. For document ingestion, use Textract async jobs.
 
 **Key difference from PoC:** The PoC runs the embedding model in-process (Node.js ONNX). In production, embedding is an API call to Bedrock, so the compute services need very little local CPU/memory.
 
 ### 5. ETL Pipelines
 
-The PoC has two ETL pipelines (documents and web crawl) both reading from local file mounts. In production these become two separate Step Functions workflows pulling from distinct external sources.
+The PoC has three ETL pipelines:
+
+- document ETL from synthetic document manifests
+- web-content ETL from synthetic HTML manifests
+- claims ETL from synthetic member claims and claims activity logs
+
+In production, these become separate workflows pulling from distinct systems of record.
 
 ---
 
 #### 5a. Document ETL — SharePoint Online
 
-**PoC:** `node-cron` scheduler in a Docker container running `vectorize.js`, reading PDFs from a local volume mount.
+**PoC:** `node-cron` scheduler in a Docker container running `vectorize.js`, reading the generated document manifest and embedding the associated page text.
 
 **Production data source:** All benefits documents (PDFs, DOCX, PPTX) reside in **SharePoint Online** document libraries within the organization's Microsoft 365 tenant. The ETL pipeline pulls documents from SharePoint via the **Microsoft Graph API**.
 
@@ -211,7 +221,7 @@ Enable **automatic rotation** (90-day cycle) using a Secrets Manager rotation La
 
 #### 5b. Web Content ETL — Umbraco CMS
 
-**PoC:** `node-cron` scheduler in a Docker container running `vectorize.js`, reading HTML files from a local volume mount.
+**PoC:** `node-cron` scheduler in a Docker container running `vectorize.js`, reading the generated web manifest and embedding sectioned page content.
 
 **Production data source:** All web-based benefits content is hosted by an **Umbraco CMS** instance. The ETL pipeline retrieves content via Umbraco's **Content Delivery API** (or by crawling the rendered site).
 
@@ -284,9 +294,41 @@ EventBridge Scheduler → Step Functions (Web Content ETL) →
 - **Umbraco downtime:** If the Umbraco site is unreachable, the web content ETL skips the run and retries on the next schedule. CloudWatch Alarm triggers after consecutive failures.
 - **Permissions changes:** If the SharePoint app registration loses `Sites.Selected` access or the Umbraco API key is revoked, the respective workflow fails and triggers a CloudWatch Alarm → SNS notification.
 
+---
+
+#### 5c. Claims ETL — Carrier, TPA, or Warehouse Feed
+
+**PoC:** `etl-claims-line` reads committed synthetic JSON files (`primary.json` and `logs.json`) and upserts member claims plus claims activity logs into PostgreSQL.
+
+**Production data source:** Member claims should come from the operational system of record, typically one of:
+
+- a nightly carrier or TPA file drop into S3
+- a claims platform API
+- a warehouse or event stream publishing adjudication updates
+
+**AWS Production:**
+
+```text
+EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
+  Lambda/ECS fetch and normalize claims -> Bedrock embeddings for searchable text fields ->
+  Aurora PostgreSQL or OpenSearch -> Member Benefits API
+```
+
+**Recommended shape:**
+
+| Stage | Recommendation |
+|---|---|
+| Ingest | Land source files or events in S3, or pull from the carrier API on a schedule |
+| Normalize | Convert incoming claim records and timeline events into a stable internal schema |
+| Load | Upsert claims, deductible facts, and claim logs into relational tables |
+| Searchable text | Embed provider, claim type, status, and notes fields for member-scoped search |
+| Audit | Preserve source file metadata, load status, and change logs for reconciliation |
+
+**Why separate it from document search:** Claims data has different retention, privacy, and authorization requirements than public benefits content. Keep the workload isolated at both the storage and API layers.
+
 ### 6. Storage
 
-**PoC:** PDFs mounted as Docker volumes. Web pages stored as local HTML files.
+**PoC:** Synthetic PDFs and HTML pages are stored locally, and generated member documents are written to a host-mounted directory.
 
 **Production — Systems of Record:**
 - **SharePoint Online** is the authoritative source for all benefits **documents** (PDFs, DOCX, PPTX)
@@ -299,16 +341,19 @@ EventBridge Scheduler → Step Functions (Web Content ETL) →
 - **S3 staging bucket** — holds downloaded documents and web content temporarily during ETL processing
   - Lifecycle policy: delete objects after 7 days (these are copies, not the source of truth)
   - Separate prefixes: `documents/` (from SharePoint) and `web-content/` (from Umbraco)
+- **S3 generated-documents bucket** — stores member-specific output documents such as EOBs and plan summaries
+  - Use short-lived presigned URLs for download
+  - Apply object lifecycle rules based on retention policy
 - **Linking back to originals:**
   - For documents: generate a SharePoint sharing link via Graph API, or serve a cached copy from S3 with CloudFront
   - For web content: link directly to the Umbraco-hosted page URL (the canonical source)
 
 ### 7. Frontend
 
-**PoC:** Express serves static HTML from `public/`.
+**PoC:** Three Express apps serve static HTML frontends from `public/`.
 
 **AWS Production:**
-- **S3 + CloudFront** for static assets (both the vector search UI and the chat UI)
+- **S3 + CloudFront** for static assets (search UI, chat UI, and member benefits UI)
 - APIs served through **ALB** or **API Gateway** behind CloudFront
 - Single CloudFront distribution with origin routing: `/api/*` → ALB, `/*` → S3
 
@@ -393,6 +438,11 @@ Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/
   - Extract text from JSON responses (or HTML if crawling)
   - Chunk, embed via Bedrock, and load to vector DB
   - Implement delete handling for unpublished pages
+- **Claims ETL:**
+  - Integrate carrier, TPA, or warehouse feeds
+  - Normalize claims and activity events into the production schema
+  - Preserve change logs and reconciliation metadata
+  - Generate member-scoped searchable embeddings where needed
 - Re-vectorize all content with production embedding model
 - Validate search quality against PoC baseline
 
@@ -409,7 +459,13 @@ Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/
 - Add Cohere Rerank for improved retrieval
 - Implement streaming via Bedrock's `InvokeModelWithResponseStream`
 
-### Phase 5 — Production Hardening
+### Phase 5 — Member Benefits Experience
+- Deploy the member benefits API to ECS Fargate
+- Add Cognito-backed member authentication and member identity propagation
+- Move generated documents to S3 with presigned downloads
+- Apply member-scoped authorization checks to claims, deductible, and generated-document endpoints
+
+### Phase 6 — Production Hardening
 - Add Cognito authentication
 - Enable WAF, GuardDuty, CloudTrail
 - Set up monitoring dashboards and alarms
