@@ -1,6 +1,6 @@
 # Security Analysis Report — document-search
 
-**Date**: March 16, 2026  
+**Date**: March 16, 2026 (C-1 status updated August 4, 2026)  
 **Scope**: Full codebase review (application services, ETL pipelines, Docker infrastructure, database schema, frontend clients)  
 **Methodology**: Manual code review mapped to OWASP Top 10 (2021) and CWE identifiers
 
@@ -8,9 +8,11 @@
 
 ## Executive Summary
 
-The project uses parameterized SQL queries and `path.basename()` for file serving, which mitigates the most critical injection and path traversal vectors. However, significant gaps remain: **all API endpoints are completely unauthenticated**, a defined `API_KEY` is never enforced, HTML files are served under the application origin enabling stored XSS, default database credentials are hardcoded throughout, no security headers are set, no rate limiting exists, and internal error details leak to clients.
+The project uses parameterized SQL queries and `path.basename()` for file serving, which mitigates the most critical injection and path traversal vectors. However, significant gaps remain: **search and chat API endpoints are unauthenticated**, HTML files are served under the application origin enabling stored XSS, default database credentials are hardcoded throughout, no security headers are set, no rate limiting exists, and internal error details leak to clients.
 
 **Finding Counts**: Critical: 2 | High: 5 | Medium: 6 | Low: 4 | Informational: 3
+
+> **August 4, 2026 update:** C-1 is **partially resolved**. `member-benefits-app` (port 3002) now enforces `API_KEY` via an `x-api-key` header check on all `/api/*` routes, returning `401 Unauthorized` for missing or invalid keys. The search API (`app`, port 3000) and GenAI chat API (`genai-search`, port 3001) remain unauthenticated in local development.
 
 ---
 
@@ -20,7 +22,7 @@ The project uses parameterized SQL queries and `path.basename()` for file servin
 
 ---
 
-#### C-1: All API Endpoints Lack Authentication
+#### C-1: Search and Chat API Endpoints Lack Authentication — ⚠ PARTIALLY RESOLVED
 
 | Attribute | Value |
 |---|---|
@@ -29,19 +31,20 @@ The project uses parameterized SQL queries and `path.basename()` for file servin
 | **CWE** | CWE-306: Missing Authentication for Critical Function |
 | **Files** | `services/app/src/index.js`, `services/genai-search/src/index.js` |
 
-**Description**: Every endpoint in both Express services (search API on port 3000, GenAI chat on port 3001) is freely accessible without any authentication or authorization. The `API_KEY` environment variable is defined in `docker-compose.app.yml` (`API_KEY: ${API_KEY:-dev-key-please-change}`) but is **never read or enforced** anywhere in the application code — no middleware, no header check, no guard on any route.
+**Description**: Every endpoint in the search service (port 3000) and GenAI chat service (port 3001) is freely accessible without any authentication or authorization.
 
-This means:
-- Any network-accessible client can query the full document corpus, access all search APIs, and interact with the GenAI chat.
-- The Ollama LLM can be used as an unlimited oracle by any caller.
-- Internal documents and employee benefits data are publicly accessible.
+**August 4, 2026 — Partial resolution:** `member-benefits-app` (port 3002) now enforces the `API_KEY` environment variable. All `/api/*` routes in that service require an `x-api-key` header matching `process.env.API_KEY` and return `401 Unauthorized` for missing or invalid keys. Member identity is resolved via `x-member-email` header, `memberEmail` query parameter, or request body field, with a `404` returned when the member is not found in the claims data.
 
-**Risk**: Unrestricted access to potentially sensitive employee benefits information and unconstrained LLM usage.
+**Remaining exposure:**
+- `app` (port 3000): search, document list, ETL history, and admin endpoints are still unauthenticated in local development. The admin endpoints (`PATCH /api/documents/:id`, `DELETE /api/documents/:id`) support an optional `X-Admin-Key` / `ADMIN_KEY` guard but it is not enabled by default.
+- `genai-search` (port 3001): chat, feedback, and analytics endpoints are still unauthenticated.
 
-**Remediation**:
-1. Implement API key middleware that verifies an `Authorization` or `X-API-Key` header against `process.env.API_KEY` on all routes.
-2. Return `401 Unauthorized` for missing/invalid keys.
-3. For the GenAI chat, consider per-user authentication to prevent session hijacking.
+**Risk**: Unrestricted access to document search and GenAI chat; unconstrained LLM usage.
+
+**Remaining remediation:**
+1. Apply API key middleware to `app` and `genai-search` matching the pattern already implemented in `member-benefits-app`.
+2. Enable `ADMIN_KEY` for the admin endpoints in any non-local environment.
+3. For GenAI chat, consider per-user authentication to prevent session hijacking.
 
 ---
 

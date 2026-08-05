@@ -29,6 +29,8 @@ The project is well-structured at the macro level with clean service separation,
 
 **Resolution:** Added `.dockerignore` to each service directory (`services/app/`, `services/genai-search/`, `services/etl-documents/`, `services/etl-webcrawl/`) excluding `node_modules`, `test`, `data`, and `*.md`. Added a root `.dockerignore` excluding `.git`, `node_modules`, `*.md`, `docs/`, `.env*`, and `*.py`. Dockerfiles updated to use targeted `COPY` paths instead of `COPY . .`.
 
+**August 4, 2026 — Extended:** Two new services added since the original resolution also include `.dockerignore` files: `services/etl-claims-line/.dockerignore` and `services/member-benefits-app/.dockerignore`. All six service directories are now covered.
+
 ### 3b. No multi-stage builds — MEDIUM
 
 All Dockerfiles are single-stage. Since `npm install` pulls build dependencies (native addons for ONNX runtime inside `@xenova/transformers`), a multi-stage build separating the install stage from the runtime stage would reduce final image size.

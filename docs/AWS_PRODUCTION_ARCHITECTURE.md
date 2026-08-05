@@ -2,16 +2,18 @@
 
 This document maps the current proof-of-concept (PoC) stack — built to run on a single MacBook — to the recommended AWS services for a production deployment.
 
+> **PoC diagrams:** [System Architecture](diagrams/system-architecture.md) \u00b7 [Database Schema](diagrams/database-schema.md) \u00b7 [ETL Pipeline](diagrams/etl-pipeline.md)
+
 ---
 
 ## Current PoC vs AWS Production
 
 | Component | PoC (MacBook) | AWS Production | Why |
 |---|---|---|---|
-| **Compute** | Docker Compose on laptop | ECS Fargate or EKS | Serverless containers, no instance management |
+| **Compute** | Docker Compose on laptop | EKS (primary); Lambda + API Gateway (serverless fallback) | Kubernetes on AWS; no ECS/Fargate permitted by organisational policy |
 | **Embedding Model** | Xenova/bge-small-en-v1.5 (384d, ONNX in Node.js) | Amazon Bedrock — Cohere Embed v3 or Amazon Titan Embeddings V2 | Managed API, 1024d vectors, multilingual, far higher quality |
 | **Vector Index** | PostgreSQL 15 + pgvector (HNSW) | Amazon OpenSearch Serverless (vector engine) or Amazon Aurora PostgreSQL + pgvector | Purpose-built vector search at scale with filtering |
-| **LLM** | Ollama + Qwen 2.5 3B (local, CPU) | Amazon Bedrock — Anthropic Claude 3.5 Sonnet or Amazon Nova Pro | Managed, fast, high-quality reasoning; no GPU management |
+| **LLM** | Ollama + Qwen 2.5 3B (local, CPU) | Amazon Bedrock — Anthropic Claude Sonnet 5 or Claude Haiku 4.5 | Managed, fast, high-quality reasoning; no GPU management |
 | **Database** | PostgreSQL 15 (Docker) | Amazon Aurora PostgreSQL Serverless v2 | Auto-scaling, managed backups, high availability |
 | **Document Source** | Local synthetic PDFs plus generated `manifest.json` | SharePoint Online (Microsoft 365) document libraries | Single source of truth for documents; managed by content owners in 365 |
 | **Web Content Source** | Local synthetic HTML plus generated `web_manifest.json` | Umbraco CMS (web crawl) | Authoritative source for web-based benefits content |
@@ -25,7 +27,7 @@ This document maps the current proof-of-concept (PoC) stack — built to run on 
 | **Networking** | Docker bridge network | VPC, ALB, private subnets, NAT gateway | Network isolation, TLS termination, WAF integration |
 | **Secrets** | `.env` file / environment variables | AWS Secrets Manager | Audit trail, rotation, IAM-scoped access; stores Entra ID client credentials |
 | **Monitoring** | `docker logs` | CloudWatch Logs, CloudWatch Metrics, X-Ray | Dashboards, alarms, distributed tracing |
-| **Auth** | Search/chat are open in local dev; member app uses API key plus member identity header | Amazon Cognito + ALB OIDC integration | SSO, MFA, user management, and downstream member identity |
+| **Auth** | Search/chat are open in local dev; member app uses API key plus member identity header | Okta (IdP) → PingFederate (federation hub) → ALB OIDC listener | Enterprise SSO via existing Okta/PingFed infrastructure; ALB validates OIDC tokens before forwarding requests |
 | **CDN / Frontend** | Express static files | CloudFront + S3 (static hosting) | Global edge caching, HTTPS |
 
 ---
@@ -54,17 +56,27 @@ This document maps the current proof-of-concept (PoC) stack — built to run on 
 
 **AWS Production — Amazon Bedrock LLMs:**
 
-| Option | Context Window | Strengths | Cost (est. per 1M tokens) |
-|---|---|---|---|
-| **Claude 3.5 Sonnet** | 200K tokens | Best reasoning + instruction following; excellent at citing sources | ~$3 input / $15 output |
-| **Amazon Nova Pro** | 300K tokens | Low cost, fast, good for straightforward Q&A | ~$0.80 input / $3.20 output |
-| **Claude 3.5 Haiku** | 200K tokens | Fast and cheap; good middle ground | ~$0.80 input / $4 output |
-| Amazon Nova Lite | 300K tokens | Lowest cost; acceptable for simple lookups | ~$0.06 input / $0.24 output |
+> **Last reviewed:** August 4, 2026. Bedrock model availability and pricing change frequently — verify against [aws.amazon.com/bedrock/pricing](https://aws.amazon.com/bedrock/pricing/) before committing to a model.
 
-**Recommendation:** Start with **Claude 3.5 Sonnet** for highest answer quality, especially for a benefits Q&A product where accuracy matters. Use **Amazon Nova Pro** or **Claude 3.5 Haiku** as a cost-optimized fallback for high-volume, simple queries. The large context windows (200K–300K tokens) eliminate the need to aggressively truncate retrieved context — you can pass 20–50 chunks instead of the PoC's 10.
+| Option | Context Window | Max Output | Strengths | Cost (per 1M tokens) |
+|---|---|---|---|---|
+| **Claude Sonnet 5** ⭐ | 1M tokens | 128K tokens | Best balance of speed and intelligence; near-Opus quality at Sonnet cost; adaptive thinking always on | $3 input / $15 output¹ |
+| **Claude Opus 5** | 1M tokens | 128K tokens | Highest general capability for complex agentic and enterprise work | $5 input / $25 output |
+| **Claude Fable 5** | 1M tokens | 128K tokens | Top-of-range capability for long-running agents and deep reasoning; highest cost | $10 input / $50 output |
+| **Claude Haiku 4.5** | 200K tokens | 64K tokens | Fastest model with near-frontier intelligence; lowest-cost Anthropic option | $1 input / $5 output |
+| Amazon Nova Pro | 300K tokens | 5K tokens | Low cost, fast, native AWS; limited by 5K max output — suitable for short answers only | ~$0.80 input / $3.20 output |
+| Amazon Nova Lite | 300K tokens | 5K tokens | Lowest cost per token; acceptable for very simple, short lookups only | ~$0.06 input / $0.24 output |
+
+¹ Introductory pricing of **$2 input / $10 output** per MTok applies to Claude Sonnet 5 through August 31, 2026.
+
+> **Note on Amazon Nova Premier:** Nova Premier reached **Legacy** status and has an EOL date of **September 14, 2026**. Do not use it for new deployments.
+
+> **Note on Nova output limits:** Amazon Nova Pro and Nova Lite cap output at 5K tokens. This is adequate for short Q&A but is a hard constraint for RAG responses that include multi-paragraph answers or document summaries. Claude models allow 64K–128K output tokens, making them much better suited for a benefits Q&A product.
+
+**Recommendation:** Start with **Claude Sonnet 5** for the best combination of answer quality, cost, and context capacity. Its 1M token context window means the PoC's `MAX_CONTEXT_CHARS` cap of 6,000 characters can be raised substantially — you can pass 50–100 chunks instead of the PoC's 10. For maximum accuracy with complex member benefits questions, step up to **Claude Opus 5**. Use **Claude Haiku 4.5** as the cost-optimized path for high-volume simple queries (e.g., "what is my deductible?") where latency matters more than depth.
 
 **RAG strategy upgrade:** With a production LLM, implement:
-- **Re-ranking** — Use Cohere Rerank v3 (via Bedrock) to re-order the top-50 vector results before passing the top-10 to the LLM. This dramatically improves retrieval precision.
+- **Re-ranking** — Use Cohere Rerank 3.5 (via Bedrock) to re-order the top-50 vector results before passing the top-10 to the LLM. This dramatically improves retrieval precision.
 - **Hybrid search** — Combine vector similarity with BM25 keyword search (OpenSearch supports this natively).
 
 ### 3. Vector Index / Search
@@ -91,23 +103,38 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 
 **PoC:** Six Node.js containers running under Docker Compose.
 
-**AWS Production:**
+> **Organisational constraint:** ECS and ECS Fargate are not permitted. The preferred container platform is **EKS**. Where Kubernetes is not yet available or practical (e.g. early-phase deployments), fall back to **Lambda + API Gateway** for API services and **Step Functions + Lambda** for ETL.
 
-| Service | Deployment |
+#### Primary: Amazon EKS
+
+| Service | EKS Deployment |
 |---|---|
-| **Search API** | ECS Fargate (or App Runner for simplicity) behind ALB |
-| **GenAI Chat API** | ECS Fargate behind ALB — separate service for independent scaling |
-| **Member Benefits API** | ECS Fargate behind ALB — separate service for member-scoped traffic and document generation |
-| **ETL Pipelines** | AWS Step Functions → Lambda functions (or ECS Fargate tasks for long-running jobs) |
+| **Search API** | Kubernetes `Deployment` + `Service`; exposed via ALB Ingress (AWS Load Balancer Controller) |
+| **GenAI Chat API** | Kubernetes `Deployment` + `Service`; separate namespace or node group for independent scaling |
+| **Member Benefits API** | Kubernetes `Deployment` + `Service`; member-scoped traffic and document generation |
+| **ETL Pipelines** | Kubernetes `CronJob` (or `Job` triggered by EventBridge → Step Functions → EKS `run-job` step) |
 
-**Recommendation:** **ECS Fargate** for the API services. Fargate removes all server management — you define CPU/memory per task, set auto-scaling rules, and deploy via CI/CD.
+**Recommendation:** Deploy all three API services as Kubernetes Deployments in a shared EKS cluster, with separate namespaces per service for isolation. Use the AWS Load Balancer Controller to provision ALB Ingress resources from Kubernetes manifests. Use Karpenter (or Cluster Autoscaler) for node auto-scaling.
 
-- Search API: 0.5 vCPU / 1 GB (scales on request count)
-- GenAI Chat API: 0.5 vCPU / 1 GB (scales on request count; LLM work is offloaded to Bedrock)
-- Member Benefits API: 0.5 vCPU / 1 GB to start; scale on request count and document-generation volume
-- ETL: Step Functions orchestrating Lambda functions. Lambda handles chunking, structured transforms, and Bedrock embedding calls. For document ingestion, use Textract async jobs.
+- Search API: requests 256m CPU / 512Mi memory; scales on request count (KEDA HTTP add-on or HPA on custom metrics)
+- GenAI Chat API: requests 256m CPU / 512Mi memory; LLM and embedding work is offloaded to Bedrock, so compute needs are light
+- Member Benefits API: requests 256m CPU / 512Mi memory to start; scale on request count and document-generation volume
+- ETL: Kubernetes `CronJob` resources (one per pipeline) replace `node-cron` containers. For long-running ingestion jobs (Textract, large batch embeds), use `Job` resources with a generous `activeDeadlineSeconds`; orchestrate with Step Functions calling the EKS `run-job` API action if central workflow visibility is needed.
 
-**Key difference from PoC:** The PoC runs the embedding model in-process (Node.js ONNX). In production, embedding is an API call to Bedrock, so the compute services need very little local CPU/memory.
+#### Fallback: Lambda + API Gateway
+
+If EKS is not available in the target account or region at deployment time, each API service can be re-packaged as a Lambda function behind an API Gateway HTTP API:
+
+| Service | Lambda Fallback |
+|---|---|
+| **Search API** | Lambda (Node.js 20.x) + API Gateway HTTP API; `GET /api/search*` and `GET /api/documents*` map to Lambda handlers |
+| **GenAI Chat API** | Lambda (Node.js 20.x) + API Gateway HTTP API; streaming responses use Lambda response streaming (`InvokeWithResponseURL`) |
+| **Member Benefits API** | Lambda (Node.js 20.x) + API Gateway HTTP API |
+| **ETL Pipelines** | Step Functions + Lambda (Node.js 20.x); each ETL stage is a separate Lambda function (15-minute limit applies — split large batches accordingly) |
+
+> Lambda's **15-minute execution limit** is a constraint for ETL steps that process large documents or large batches. Mitigate by splitting work into smaller per-document or per-chunk Lambda invocations coordinated by Step Functions Map states, or by using Textract's asynchronous job API (start job → poll or receive SNS notification → process results in a subsequent Lambda).
+
+**Key difference from PoC:** The PoC runs the embedding model in-process (Node.js ONNX). In production, embedding is an API call to Bedrock, so the compute services need very little local CPU/memory regardless of whether EKS or Lambda is used.
 
 ### 5. ETL Pipelines
 
@@ -198,7 +225,7 @@ EventBridge Scheduler → Step Functions (Document ETL) →
 
 **Supported document types from SharePoint:**
 - PDF — processed directly by Textract
-- DOCX, PPTX, XLSX — convert to PDF via a Lambda layer (e.g., LibreOffice) or ECS task before Textract
+- DOCX, PPTX, XLSX — convert to PDF via a Lambda layer (e.g., LibreOffice) or a dedicated EKS Job before Textract
 
 ##### Secrets Manager Configuration (SharePoint)
 
@@ -310,7 +337,7 @@ EventBridge Scheduler → Step Functions (Web Content ETL) →
 
 ```text
 EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
-  Lambda/ECS fetch and normalize claims -> Bedrock embeddings for searchable text fields ->
+  Lambda (or EKS Job) to fetch and normalize claims -> Bedrock embeddings for searchable text fields ->
   Aurora PostgreSQL or OpenSearch -> Member Benefits API
 ```
 
@@ -361,7 +388,7 @@ EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
 
 | Concern | AWS Service |
 |---|---|
-| Authentication | Amazon Cognito (user pools, OIDC) |
+| Authentication | **Okta → PingFederate → ALB OIDC listener**; users authenticate via Okta, PingFederate acts as the federation hub and issues OIDC tokens, the ALB OIDC authenticator validates tokens before routing to backend services |
 | Authorization | IAM roles, resource policies |
 | Network isolation | VPC with private subnets for databases and services |
 | TLS | ACM certificates on ALB + CloudFront |
@@ -383,21 +410,30 @@ EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
 
 ## Cost Estimates (Monthly)
 
-Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/day, ~5K documents indexed.
+Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/day, ~5K documents indexed. LLM costs use Claude Sonnet 5 standard pricing; an introductory rate of $2/$10 per MTok applies through August 31, 2026.
 
 | Service | Dev/Test | Production |
 |---|---|---|
-| ECS Fargate (2 services) | $30 | $150 |
+| EKS cluster (shared, 3 services) | $75 | $250 |
+| *or* Lambda + API Gateway (fallback) | $10 | $80 |
 | Aurora PostgreSQL Serverless v2 | $50 | $200 |
 | *or* OpenSearch Serverless | $175 (2 OCU minimum) | $350 |
 | Bedrock Embeddings (Titan V2) | $5 | $20 |
-| Bedrock LLM (Claude 3.5 Sonnet) | $50 | $500 |
+| Bedrock LLM (Claude Sonnet 5) | $30 | $300 |
+| *or* Bedrock LLM (Claude Haiku 4.5) | $10 | $100 |
 | *or* Bedrock LLM (Nova Pro) | $15 | $120 |
 | S3 (staging only — source docs in SharePoint) | $1 | $3 |
 | CloudFront | $1 | $10 |
 | Secrets Manager, CloudWatch, etc. | $10 | $30 |
-| **Total (Aurora + Sonnet)** | **~$150/mo** | **~$900/mo** |
-| **Total (OpenSearch + Nova Pro)** | **~$240/mo** | **~$700/mo** |
+| Authentication (Okta → PingFederate) | Org-provided | Org-provided |
+| **Total (EKS + Aurora + Sonnet 5)** | **~$175/mo** | **~$815/mo** |
+| **Total (EKS + Aurora + Haiku 4.5)** | **~$155/mo** | **~$615/mo** |
+| **Total (Lambda + Aurora + Sonnet 5)** | **~$110/mo** | **~$645/mo** |
+| **Total (OpenSearch + Nova Pro + EKS)** | **~$315/mo** | **~$850/mo** |
+
+> **Recommended configuration — expected cost per month:**
+> EKS + Aurora PostgreSQL + Claude Sonnet 5 → **~$815/mo (production)** · **~$175/mo (dev/test)**
+> Authentication (Okta → PingFederate) is covered by existing enterprise licensing and carries no additional AWS cost.
 
 ---
 
@@ -447,30 +483,32 @@ Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/
 - Validate search quality against PoC baseline
 
 ### Phase 3 — Search API
-- Deploy search API to ECS Fargate behind ALB
+- **EKS path:** Build and push Docker image to ECR; apply Kubernetes `Deployment`, `Service`, and `Ingress` manifests; expose via ALB Ingress (AWS Load Balancer Controller)
+- **Lambda fallback:** Package search handlers as Lambda functions; create API Gateway HTTP API with `GET /api/search*` and `GET /api/documents*` routes
 - Replace in-process embeddings with Bedrock API call
 - Switch vector queries to OpenSearch or Aurora
 - Deploy static frontend to S3 + CloudFront
 
 ### Phase 4 — GenAI Chat
-- Deploy chat API to ECS Fargate
-- Replace Ollama with Bedrock LLM calls
+- **EKS path:** Deploy chat API as a Kubernetes `Deployment`; streaming SSE responses work without modification in EKS
+- **Lambda fallback:** Use Lambda response streaming (`FunctionUrlConfig: InvokeMode: RESPONSE_STREAM`) or API Gateway WebSocket API for streaming; replace Ollama with Bedrock LLM calls
 - Implement conversation persistence (DynamoDB for sessions instead of in-memory)
-- Add Cohere Rerank for improved retrieval
+- Add Cohere Rerank 3.5 for improved retrieval
 - Implement streaming via Bedrock's `InvokeModelWithResponseStream`
 
 ### Phase 5 — Member Benefits Experience
-- Deploy the member benefits API to ECS Fargate
-- Add Cognito-backed member authentication and member identity propagation
+- **EKS path:** Deploy member benefits API as a Kubernetes `Deployment`; mount generated-docs volume or switch to S3
+- **Lambda fallback:** Package member benefits handlers as Lambda functions behind API Gateway
+- Integrate Okta → PingFederate OIDC with the ALB listener; propagate member identity downstream via JWT claims (`sub`, `email`, or a custom claim) as a request header
 - Move generated documents to S3 with presigned downloads
 - Apply member-scoped authorization checks to claims, deductible, and generated-document endpoints
 
 ### Phase 6 — Production Hardening
-- Add Cognito authentication
+- Validate Okta → PingFederate OIDC integration end-to-end; confirm ALB OIDC listener rejects unauthenticated requests and that member identity flows correctly to backend services
 - Enable WAF, GuardDuty, CloudTrail
 - Set up monitoring dashboards and alarms
-- Load test and tune auto-scaling policies
-- Implement CI/CD pipeline (CodePipeline or GitHub Actions → ECR → ECS)
+- Load test and tune auto-scaling / Karpenter node provisioning policies (EKS) or Lambda concurrency limits (fallback)
+- Implement CI/CD pipeline (CodePipeline or GitHub Actions → ECR → EKS rolling deployment or Lambda update)
 
 ---
 
@@ -528,8 +566,8 @@ Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/
   └───────────────────────────────┘  └───────────────────────────────┘
 
 ┌──────────────┐     ┌──────────────┐     ┌───────────────────┐
-│  CloudFront  │────▶│  S3 (static) │     │   Amazon Cognito  │
-│              │     └──────────────┘     │   (auth)          │
+│  CloudFront  │────▶│  S3 (static) │     │ Okta → PingFed    │
+│              │     └──────────────┘     │ (OIDC / SAML)     │
 │              │                          └─────────┬─────────┘
 │              │────▶┌──────────────┐               │
 └──────────────┘     │     ALB      │◀──────────────┘
@@ -539,7 +577,7 @@ Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/
                 ┌───────────┴───────────┐
                 │                       │
         ┌───────▼───────┐       ┌───────▼───────┐
-        │  ECS Fargate  │       │  ECS Fargate  │
+        │  EKS Pod      │       │  EKS Pod      │
         │  Search API   │       │  GenAI Chat   │
         └───────┬───────┘       └───┬───────┬───┘
                 │                   │       │

@@ -1,7 +1,7 @@
 # Documentation Review Report — document-search
 
-**Date**: August 1, 2026  
-**Scope**: docs README, AWS production architecture, setup guidance, API coverage, environment-variable documentation
+**Date**: August 4, 2026  
+**Scope**: docs README, AWS production architecture, technology stack, setup guidance, API coverage, environment-variable documentation
 
 ---
 
@@ -15,6 +15,11 @@ The remaining documentation gaps are narrower:
 - there is still no standalone API contract document for request and response schemas
 - review notes in the docs folder should be treated as point-in-time assessments, not as normative product documentation
 
+**New in this cycle:**
+
+- Root `README.md` created — provides the project entry point with a quick-start summary and documentation index
+- `docs/TECH_STACK.md` created — living technology stack document covering runtime, frameworks, database, embedding model, LLM, ETL, containerization, and security tooling
+
 ---
 
 ## 1. Docs README Assessment
@@ -24,8 +29,11 @@ The remaining documentation gaps are narrower:
 - The opening description matches the actual scope: search, chat, and member benefits
 - The service table covers PostgreSQL, Ollama, three application services, and three ETL services
 - The quick-start flow matches `startup/setup.sh`, including data generation, schema verification, and Ollama model pull
-- The API reference now includes search, web search, unified search, chat, and member-benefits routes
+- The API reference now includes search, web search, unified search, chat, analytics, and member-benefits routes
 - The data-flow description correctly states that document ETL reads `manifest.json` rather than parsing PDFs during ETL runtime
+- Analytics dashboard endpoints (`/api/analytics/summary`, `/api/analytics/questions`, `/api/analytics/escalations`) are documented
+- Escalation detection signals and their trigger phrases are documented in the API reference
+- Open enrollment comparison (`GET /api/enrollment/compare`) response contract and example request are documented
 
 ### Remaining gaps
 
@@ -106,6 +114,7 @@ Recommended follow-up:
 |---|---|---|
 | 1 | Align `.env.example` with documented optional variables | Prevents drift between bootstrap artifacts and docs |
 | 2 | Add a dedicated API reference doc if external consumers are expected | Current docs are good for developers but still light for integration work |
+| 3 | Maintain `docs/TECH_STACK.md` when dependencies or infrastructure change | Living document; now exists — update it alongside `package.json` or Dockerfile changes |
 
 ### Medium priority
 
@@ -127,9 +136,11 @@ Recommended follow-up:
 
 | Area | Rating | Notes |
 |---|---|---|
-| Docs README completeness | **Good** | Covers the current local stack and primary API surfaces |
-| AWS architecture doc | **Good** | Now reflects claims and member-benefits additions; diagram is still search-centric |
+| Docs README completeness | **Good** | Covers the current local stack and all API surfaces including analytics and escalation |
+| Root README | **Good** | Created; provides entry point with quick-start and documentation index |
+| Technology stack doc | **Good** | Created (`docs/TECH_STACK.md`); needs to be kept in sync with dependency changes |
+| AWS architecture doc | **Good** | Reflects claims and member-benefits additions; diagram is still search-centric |
 | API documentation depth | **Fair** | Endpoint coverage is good, schema depth is still limited |
 | Setup instructions | **Good** | Matches the real bootstrap path and prerequisites |
 | Environment variable documentation | **Fair** | README improved; `.env.example` still trails it |
-| Overall documentation currency | **Good** | Main factual drift has been addressed |
+| Overall documentation currency | **Good** | All main factual gaps have been addressed |
