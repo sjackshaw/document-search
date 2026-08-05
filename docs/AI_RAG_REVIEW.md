@@ -1,7 +1,10 @@
 # AI & RAG Architecture Review — document-search
 
 **Date**: March 16, 2026  
+**Last reviewed**: August 4, 2026 — PoC code findings remain open and accurate; Section 10 (Production Architecture) updated to reflect current AWS doc state.  
 **Scope**: Embedding model, chunking strategy, RAG pipeline, LLM integration, prompt engineering, search quality, session management, streaming implementation
+
+> **Diagrams:** [RAG Chat Request Sequence](diagrams/rag-chat-sequence.md) · [ETL Pipeline](diagrams/etl-pipeline.md) · [System Architecture](diagrams/system-architecture.md)
 
 ---
 
@@ -345,8 +348,9 @@ The AWS Production Architecture document is **exceptionally thorough**:
 - **Reranking strategy is correctly placed** — Retrieve top-50 → rerank → take top-10
 - **Hybrid search recommendation is appropriate** — BM25 + vector in OpenSearch Serverless
 - **Sites.Selected over Sites.Read.All** is excellent security guidance
-- **Missing**: Cohere Rerank cost estimate in the cost table
-- **Minor**: Claude model references may need updating to latest Bedrock availability
+- ~~Missing: Cohere Rerank cost estimate in the cost table~~ — **Resolved (Aug 2026):** Cohere Rerank 3.5 is now referenced in the LLM section of the AWS doc
+- ~~Minor: Claude model references may need updating to latest Bedrock availability~~ — **Resolved (Aug 2026):** LLM table updated to Claude Sonnet 5 ($3/$15 per MTok, ⭐ recommended), Claude Opus 5, Claude Fable 5, Claude Haiku 4.5; Nova Premier flagged EOL September 14, 2026; introductory Sonnet 5 pricing noted through August 31, 2026
+- **Note:** ECS/Fargate compute references replaced with EKS (primary) and Lambda + API Gateway (serverless fallback) per organisational policy; auth updated from Cognito to Okta → PingFederate → ALB OIDC
 
 ---
 

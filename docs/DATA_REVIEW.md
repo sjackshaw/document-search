@@ -3,6 +3,8 @@
 **Date**: March 16, 2026  
 **Scope**: Schema design, pgvector configuration, stored procedures, ETL pipelines, query patterns, connection pooling, data integrity, migration strategy
 
+> **Diagrams:** [Database Schema ER Diagram](diagrams/database-schema.md) · [ETL Pipeline](diagrams/etl-pipeline.md)
+
 ---
 
 ## 1. Schema Design

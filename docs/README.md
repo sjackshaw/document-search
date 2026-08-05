@@ -37,6 +37,8 @@ When setup completes, the local entry points are:
 
 ## Running Services
 
+See [diagrams/system-architecture.md](diagrams/system-architecture.md) for the full service dependency graph.
+
 | Service | Port | Purpose |
 |---|---|---|
 | `postgres` | `5433 -> 5432` | PostgreSQL 15 with pgvector; stores document, web, and claims search data |
@@ -50,16 +52,16 @@ When setup completes, the local entry points are:
 
 ## Data Flow
 
-### Search and Chat
+See the [diagrams/](diagrams/) folder for full visual diagrams:
 
-```text
-Synthetic PDFs + manifest.json ----> etl-documents ---
-                                                 \
-                                                  --> PostgreSQL + pgvector --> Search API/UI (3000)
-                                                 /
-Synthetic HTML + web_manifest.json -> etl-webcrawl ---                           \
-                                                                                  --> GenAI chat API/UI (3001) -> Ollama
-```
+| Diagram | Description |
+|---|---|
+| [diagrams/system-architecture.md](diagrams/system-architecture.md) | All Docker services, ports, and their connections |
+| [diagrams/etl-pipeline.md](diagrams/etl-pipeline.md) | All three ETL pipelines from source data to PostgreSQL |
+| [diagrams/rag-chat-sequence.md](diagrams/rag-chat-sequence.md) | RAG chat request sequence, escalation detection, feedback loop, and analytics |
+| [diagrams/database-schema.md](diagrams/database-schema.md) | Full ER diagram — all tables, columns, and relationships |
+
+### Search and Chat
 
 - The document ETL does not parse PDFs at runtime. It reads `services/etl-documents/data/manifest.json`, which is generated alongside the PDFs.
 - The web ETL reads `services/etl-webcrawl/data/web_manifest.json` and indexes sectioned HTML content.
@@ -67,12 +69,6 @@ Synthetic HTML + web_manifest.json -> etl-webcrawl ---                          
 - The chat service embeds the incoming question, retrieves the top matching chunks from both document and web sources, and sends grounded context to Ollama.
 
 ### Member Benefits Assistant
-
-```text
-Synthetic claims JSON -> etl-claims-line -> PostgreSQL claims tables -> member-benefits-app (3002)
-                                                              \
-                                                               -> generated member documents on local disk
-```
 
 - The member assistant is separate from RAG chat. It uses structured claims and plan data rather than the document/web retrieval pipeline.
 - Generated documents such as EOBs, SPDs, enrollment forms, and beneficiary forms are written to `data-output/member-benefits-docs` on the host.
