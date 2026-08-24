@@ -6,7 +6,7 @@ services:
     container_name: document-search-portal
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PORTAL_HOST_PORT:-3000}:3000"
     environment:
       PGHOST: ${PGHOST:-postgres}
       PGPORT: ${PGPORT:-5432}

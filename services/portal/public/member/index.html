@@ -108,6 +108,8 @@
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
     .metric { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
     .metric strong { display: block; font-size: 24px; margin-top: 4px; }
+    .metric strong a { color: var(--teal); text-decoration: none; }
+    .metric strong a:hover { text-decoration: underline; }
 
     table { border-collapse: collapse; width: 100%; font-size: 14px; }
     th, td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; }
@@ -248,11 +250,19 @@
         return acc;
       }, { claims: 0, billed: 0, paid: 0, member: 0 });
       metrics.innerHTML = [
-        ['Claims', totals.claims],
+        ['Claims', `<a href="#" id="claimsCountLink" title="Show all claims">${totals.claims}</a>`],
         ['Billed', money(totals.billed)],
         ['Paid', money(totals.paid)],
         ['Member Responsibility', money(totals.member)],
       ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+      const claimsCountLink = document.getElementById('claimsCountLink');
+      if (claimsCountLink) {
+        claimsCountLink.addEventListener('click', (event) => {
+          event.preventDefault();
+          loadAllClaims().catch(err => answer.textContent = err.message);
+        });
+      }
     }
 
     async function loadSession() {
@@ -269,6 +279,12 @@
       const body = await request('/api/member/claims/open');
       renderClaims(body.claims);
       showJson('Open claims', body.claims);
+    }
+
+    async function loadAllClaims() {
+      const body = await request('/api/member/claims/search');
+      renderClaims(body.claims);
+      showJson('All claims', body.claims);
     }
 
     async function loadSummary() {

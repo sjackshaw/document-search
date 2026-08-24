@@ -8,11 +8,13 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { embedQuery } = require('../../../../lib/embedding');
 const { detectEscalation } = require('../escalation');
+const benefits = require('../member-benefits');
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://ollama:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
 const TOP_K = parseInt(process.env.RAG_TOP_K) || 10;
 const MAX_CONTEXT_CHARS = parseInt(process.env.MAX_CONTEXT_CHARS) || 6000;
+const MEMBER_CONTEXT_MAX_CHARS = parseInt(process.env.MEMBER_CONTEXT_MAX_CHARS) || 2000;
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // ── Session store (in-memory) ────────────────────────────────────────
@@ -109,9 +111,59 @@ async function retrieveContext(question) {
   return { contextText, sources };
 }
 
+// ── Member context (demo-only personalisation) ────────────────────────
+
+// Builds a compact, plain-text summary of a member's own claims record so
+// it can be dropped into the chat prompt alongside the document/web RAG
+// context. This is intentionally simple (plain SQL lookups, not vector
+// search) — see docs discussion on merging the member bot into chat.
+async function buildMemberContext(memberEmail) {
+  const member = await benefits.resolveMember(pool, memberEmail);
+  if (!member) return null;
+
+  const planYear = new Date().getFullYear();
+  const [openClaims, summary, deductible] = await Promise.all([
+    benefits.getOpenClaims(pool, member),
+    benefits.getClaimsSummary(pool, member, null),
+    benefits.getDeductibleStatus(pool, member, planYear),
+  ]);
+
+  const lines = [`Member: ${member.memberId} (${member.memberEmail})`];
+
+  if (openClaims.length) {
+    lines.push(`Open claims (${openClaims.length}):`);
+    for (const claim of openClaims.slice(0, 10)) {
+      lines.push(`- ${claim.claimId} ${claim.claimType} with ${claim.provider || 'an unspecified provider'} on ${claim.serviceDate}: billed ${benefits.dollars(claim.amountBilled)}, paid ${benefits.dollars(claim.amountPaid)}, status ${claim.status}`);
+    }
+  } else {
+    lines.push('Open claims: none');
+  }
+
+  if (summary.length) {
+    lines.push('Claims summary by plan year and type:');
+    for (const row of summary.slice(0, 10)) {
+      lines.push(`- ${row.planYear} ${row.claimType}: ${row.claimCount} claims, billed ${benefits.dollars(row.billed)}, paid ${benefits.dollars(row.paid)}, member responsibility ${benefits.dollars(row.memberResponsibility)}`);
+    }
+  }
+
+  if (deductible.length) {
+    lines.push(`Deductible status (${planYear}):`);
+    for (const row of deductible) {
+      lines.push(`- ${row.claimType} (${row.planName}): ${benefits.dollars(row.memberSpend)} spent of ${benefits.dollars(row.deductible)} deductible, ${row.deductibleMet ? 'deductible met' : `${benefits.dollars(row.deductibleRemaining)} remaining`}`);
+    }
+  }
+
+  let contextText = lines.join('\n');
+  if (contextText.length > MEMBER_CONTEXT_MAX_CHARS) {
+    contextText = contextText.slice(0, MEMBER_CONTEXT_MAX_CHARS) + '\n... (truncated)';
+  }
+
+  return { member, contextText };
+}
+
 // ── Ollama chat ──────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a helpful benefits assistant. Answer questions about employee benefits using ONLY the provided context. If the context does not contain enough information to answer, say so clearly. Be concise and cite which source document or web page your answer comes from when possible.`;
+const SYSTEM_PROMPT = `You are a helpful benefits assistant. Answer questions about employee benefits using ONLY the provided context. If the context does not contain enough information to answer, say so clearly. Be concise and cite which source document or web page your answer comes from when possible. You may also be given a "member's personal benefits record" section — use it ONLY to answer that specific member's personal questions about their own claims, deductible, or plan usage, and do not apply it to general policy questions.`;
 
 async function chatWithOllama(messages, res) {
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -184,7 +236,7 @@ router.get('/health', async (_req, res) => {
 
 router.post('/chat', async (req, res) => {
   try {
-    const { question, sessionId } = req.body;
+    const { question, sessionId, memberEmail } = req.body;
 
     if (!question || typeof question !== 'string' || question.trim().length === 0) {
       return res.status(400).json({ error: '"question" is required' });
@@ -202,6 +254,18 @@ router.post('/chat', async (req, res) => {
     // Retrieve relevant context from vector DB
     const { contextText, sources } = await retrieveContext(question.trim());
 
+    // Optionally resolve a demo member so personal questions (open claims,
+    // deductible, plan usage) can be answered in the same chat. Anonymous
+    // chat (no memberEmail) is completely unaffected.
+    let memberContext = null;
+    if (memberEmail) {
+      try {
+        memberContext = await buildMemberContext(memberEmail);
+      } catch (err) {
+        console.error('Member context lookup failed:', err.message);
+      }
+    }
+
     // Detect escalation signals before building the response
     const { flagged: escalationFlagged, signals: escalationSignals } = detectEscalation(question.trim());
 
@@ -218,7 +282,11 @@ router.post('/chat', async (req, res) => {
     ollamaMessages.push(...recentHistory);
 
     // Add the new user message with context
-    const userMessageWithContext = `Context from internal documents and web pages:\n${contextText}\n\nQuestion: ${question.trim()}`;
+    const contextSections = [`Context from internal documents and web pages:\n${contextText}`];
+    if (memberContext) {
+      contextSections.push(`Context from the member's personal benefits record:\n${memberContext.contextText}`);
+    }
+    const userMessageWithContext = `${contextSections.join('\n\n')}\n\nQuestion: ${question.trim()}`;
     ollamaMessages.push({ role: 'user', content: userMessageWithContext });
 
     // Send metadata headers before streaming starts
@@ -226,6 +294,10 @@ router.post('/chat', async (req, res) => {
     res.setHeader('X-Sources', Buffer.from(JSON.stringify(sources)).toString('base64'));
     if (chatLogId) res.setHeader('X-Chat-Log-Id', String(chatLogId));
     if (escalationFlagged) res.setHeader('X-Escalation-Flagged', 'true');
+    if (memberContext) {
+      res.setHeader('X-Member-Id', memberContext.member.memberId);
+      res.setHeader('X-Member-Email', memberContext.member.memberEmail);
+    }
 
     // Stream the LLM response
     const assistantContent = await chatWithOllama(ollamaMessages, res);
@@ -251,7 +323,7 @@ router.post('/chat', async (req, res) => {
 
 router.post('/ask', async (req, res) => {
   try {
-    const { question, sessionId } = req.body;
+    const { question, sessionId, memberEmail } = req.body;
 
     if (!question || typeof question !== 'string' || question.trim().length === 0) {
       return res.status(400).json({ error: '"question" is required' });
@@ -267,12 +339,26 @@ router.post('/ask', async (req, res) => {
 
     const { contextText, sources } = await retrieveContext(question.trim());
 
+    let memberContext = null;
+    if (memberEmail) {
+      try {
+        memberContext = await buildMemberContext(memberEmail);
+      } catch (err) {
+        console.error('Member context lookup failed:', err.message);
+      }
+    }
+
     const { flagged: escalationFlagged, signals: escalationSignals } = detectEscalation(question.trim());
+
+    const contextSections = [`Context from internal documents and web pages:\n${contextText}`];
+    if (memberContext) {
+      contextSections.push(`Context from the member's personal benefits record:\n${memberContext.contextText}`);
+    }
 
     const ollamaMessages = [
       { role: 'system', content: SYSTEM_PROMPT },
       ...session.messages.slice(-20),
-      { role: 'user', content: `Context from internal documents and web pages:\n${contextText}\n\nQuestion: ${question.trim()}` },
+      { role: 'user', content: `${contextSections.join('\n\n')}\n\nQuestion: ${question.trim()}` },
     ];
 
     const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -306,10 +392,23 @@ router.post('/ask', async (req, res) => {
       sources,
       chatLogId,
       escalationFlagged,
+      member: memberContext ? memberContext.member : null,
     });
   } catch (err) {
     console.error('Ask error:', err);
     res.status(500).json({ error: 'Ask failed', detail: err.message });
+  }
+});
+
+// ── Member list (demo dropdown) ──────────────────────────────────────
+
+router.get('/chat/members', async (_req, res) => {
+  try {
+    const members = await benefits.listMembers(pool, 50);
+    res.json({ members });
+  } catch (err) {
+    console.error('Chat members list error:', err.message);
+    res.status(500).json({ error: 'Unable to list members' });
   }
 });
 
