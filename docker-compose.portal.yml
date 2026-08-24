@@ -1,0 +1,38 @@
+services:
+  portal:
+    build:
+      context: .
+      dockerfile: services/portal/Dockerfile
+    container_name: document-search-portal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PGHOST: ${PGHOST:-postgres}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-appdb}
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      ADMIN_KEY: ${ADMIN_KEY:-dev-admin-key-please-change}
+      API_KEY: ${API_KEY:-dev-key-please-change}
+      PDF_DIR: /data/pdfs
+      WEB_PAGES_DIR: /data/web-pages
+      DOCUMENT_DIR: /repo/services/portal/generated-docs
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      RAG_TOP_K: ${RAG_TOP_K:-10}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-6000}
+      TRANSFORMERS_CACHE: /home/node/.cache/huggingface/hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - model-cache:/home/node/.cache/huggingface/hub
+      - ./services/etl-documents/data/pdfs:/data/pdfs:ro
+      - ./services/etl-webcrawl/data/pages:/data/web-pages:ro
+      - ./data-output/member-benefits-docs:/repo/services/portal/generated-docs
+
+volumes:
+  model-cache:

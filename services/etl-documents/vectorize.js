@@ -4,7 +4,6 @@ const { Pool } = require('pg');
 const cron = require('node-cron');
 const { getEmbedder, embed, embedBatch, chunkText } = require('../../lib/embedding');
 
-const BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 64;
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '0 * * * *';
 const MANIFEST_PATH = path.join(__dirname, 'data', 'manifest.json');
 

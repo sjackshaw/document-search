@@ -3,6 +3,7 @@ import js from '@eslint/js';
 export default [
   js.configs.recommended,
   {
+    files: ['**/*.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'commonjs',
@@ -18,6 +19,7 @@ export default [
         __filename: 'readonly',
         URL: 'readonly',
         fetch: 'readonly',
+        AbortSignal: 'readonly',
         TextDecoder: 'readonly',
         Response: 'readonly',
         require: 'readonly',

@@ -12,11 +12,14 @@ When setup completes:
 
 | Service | URL | Purpose |
 |---|---|---|
-| Search UI + API | `http://localhost:3000` | Semantic search across documents and web content |
-| GenAI chat UI + API | `http://localhost:3001` | RAG-powered chat with analytics dashboard |
-| Member benefits UI + API | `http://localhost:3002` | Claims, plan details, enrollment comparison, and document generation |
+| Search UI | `http://localhost:3000` | Semantic search across documents and web content |
+| Admin dashboard | `http://localhost:3000/admin.html` | Manage indexed documents and web sources |
+| GenAI chat UI | `http://localhost:3000/chat` | RAG-powered chat with analytics dashboard (`/chat/analytics.html`) |
+| Member benefits UI | `http://localhost:3000/member` | Claims, plan details, enrollment comparison, and document generation |
 | Ollama | `http://localhost:11434` | Local LLM runtime |
 | PostgreSQL | `localhost:5433` | PostgreSQL 15 + pgvector |
+
+All three experiences are served by the single `portal` service/container (`services/portal`); only Postgres and Ollama run as separate containers.
 
 ## Teardown
 

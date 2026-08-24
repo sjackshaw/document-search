@@ -131,7 +131,7 @@
       <h1>Member Benefits Bot</h1>
       <p>Member-scoped claims, plan details, deductible status, and generated benefit documents.</p>
     </div>
-    <span class="pill">Port 3002</span>
+    <span class="pill">Member Portal</span>
   </header>
 
   <main>
@@ -256,7 +256,7 @@
     }
 
     async function loadSession() {
-      const body = await request('/api/session');
+      const body = await request('/api/member/session');
       currentMember = body.member;
       memberEmail.value = currentMember.memberEmail;
       localStorage.setItem('benefitsMemberEmail', currentMember.memberEmail);
@@ -266,35 +266,35 @@
     }
 
     async function loadOpenClaims() {
-      const body = await request('/api/claims/open');
+      const body = await request('/api/member/claims/open');
       renderClaims(body.claims);
       showJson('Open claims', body.claims);
     }
 
     async function loadSummary() {
-      const body = await request('/api/claims/summary');
+      const body = await request('/api/member/claims/summary');
       renderMetrics(body.summary);
       showJson('Claims summary', body.summary);
     }
 
     async function loadDeductible() {
-      const body = await request('/api/deductible');
+      const body = await request('/api/member/deductible');
       showJson('Deductible status', body.deductible);
     }
 
     async function loadDentalPlan() {
-      const body = await request('/api/plan?type=dental');
+      const body = await request('/api/member/plan?type=dental');
       showJson('Dental plan', body.plan);
     }
 
     async function searchDentalClaims() {
-      const body = await request('/api/claims/search?q=dental');
+      const body = await request('/api/member/claims/search?q=dental');
       renderClaims(body.claims);
       showJson('Dental claims', body.claims);
     }
 
     async function askBot() {
-      const body = await request('/api/bot', { method: 'POST', body: JSON.stringify({ prompt: promptBox.value }) });
+      const body = await request('/api/member/bot', { method: 'POST', body: JSON.stringify({ prompt: promptBox.value }) });
       showJson(`${body.tool}: ${body.message}`, body.data);
       if (Array.isArray(body.data) && body.data[0]?.claimId) renderClaims(body.data);
     }
@@ -306,7 +306,7 @@
         body.claimId = lastClaims[0]?.claimId;
       }
       if (type === 'spd') body.planType = 'medical';
-      const doc = await request(`/api/documents/${type}`, { method: 'POST', body: JSON.stringify(body) });
+      const doc = await request(`/api/member/documents/${type}`, { method: 'POST', body: JSON.stringify(body) });
       answer.innerHTML = `Generated ${doc.document.type}: <a href="${doc.document.url}" target="_blank" rel="noreferrer">${doc.document.filename}</a>`;
     }
 
