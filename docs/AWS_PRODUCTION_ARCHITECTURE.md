@@ -1,7 +1,7 @@
 # AWS Production Architecture
 
 This document maps the current proof-of-concept (PoC) stack — built to run on a single MacBook — to the recommended AWS services for a production deployment.
-
+> **2026-08-24 update:** The PoC's `app`, `genai-search`, and `member-benefits-app` services were merged into a single `portal` service/container (one Node.js process, three Express routers: `search.js`, `chat.js`, `member.js`). This section still recommends splitting search, chat, and member benefits into separate deployable units in AWS (see "Compute" below) because their production resource profiles differ significantly — chat is Bedrock-bound, search is embedding+DB-bound, and the member API is DB-bound with document-generation spikes. The PoC's single-container simplicity does not need to carry over to production, but starting from one deployable unit and splitting later (by route group, matching `services/portal/src/routes/`) is also a reasonable, lower-effort path if independent scaling isn't needed immediately.
 > **PoC diagrams:** [System Architecture](diagrams/system-architecture.md) \u00b7 [Database Schema](diagrams/database-schema.md) \u00b7 [ETL Pipeline](diagrams/etl-pipeline.md)
 
 ---
@@ -10,7 +10,7 @@ This document maps the current proof-of-concept (PoC) stack — built to run on 
 
 | Component | PoC (MacBook) | AWS Production | Why |
 |---|---|---|---|
-| **Compute** | Docker Compose on laptop | EKS (primary); Lambda + API Gateway (serverless fallback) | Kubernetes on AWS; no ECS/Fargate permitted by organisational policy |
+| **Compute** | Docker Compose on laptop (single `portal` container + 3 ETL containers + Postgres + Ollama) | EKS (primary); Lambda + API Gateway (serverless fallback) | Kubernetes on AWS; no ECS/Fargate permitted by organisational policy; production still splits search/chat/member into separate deployables for independent scaling even though the PoC runs them as one process |
 | **Embedding Model** | Xenova/bge-small-en-v1.5 (384d, ONNX in Node.js) | Amazon Bedrock — Cohere Embed v3 or Amazon Titan Embeddings V2 | Managed API, 1024d vectors, multilingual, far higher quality |
 | **Vector Index** | PostgreSQL 15 + pgvector (HNSW) | Amazon OpenSearch Serverless (vector engine) or Amazon Aurora PostgreSQL + pgvector | Purpose-built vector search at scale with filtering |
 | **LLM** | Ollama + Qwen 2.5 3B (local, CPU) | Amazon Bedrock — Anthropic Claude Sonnet 5 or Claude Haiku 4.5 | Managed, fast, high-quality reasoning; no GPU management |
@@ -101,7 +101,7 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 
 ### 4. Compute
 
-**PoC:** Six Node.js containers running under Docker Compose.
+**PoC:** A single Node.js container (`portal`) serving search, chat, and member benefits through separate Express routers, plus three short-lived ETL containers.
 
 > **Organisational constraint:** ECS and ECS Fargate are not permitted. The preferred container platform is **EKS**. Where Kubernetes is not yet available or practical (e.g. early-phase deployments), fall back to **Lambda + API Gateway** for API services and **Step Functions + Lambda** for ETL.
 
@@ -114,7 +114,7 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 | **Member Benefits API** | Kubernetes `Deployment` + `Service`; member-scoped traffic and document generation |
 | **ETL Pipelines** | Kubernetes `CronJob` (or `Job` triggered by EventBridge → Step Functions → EKS `run-job` step) |
 
-**Recommendation:** Deploy all three API services as Kubernetes Deployments in a shared EKS cluster, with separate namespaces per service for isolation. Use the AWS Load Balancer Controller to provision ALB Ingress resources from Kubernetes manifests. Use Karpenter (or Cluster Autoscaler) for node auto-scaling.
+**Recommendation:** Deploy all three API concerns as separate Kubernetes Deployments in a shared EKS cluster, with separate namespaces for isolation — even though the PoC runs them as one process, they have different scaling triggers (chat scales with Bedrock latency/concurrency, search scales with query volume, member scales with document-generation bursts) and splitting them avoids one workload's load spikes starving the others. Use the AWS Load Balancer Controller to provision ALB Ingress resources from Kubernetes manifests. Use Karpenter (or Cluster Autoscaler) for node auto-scaling.
 
 - Search API: requests 256m CPU / 512Mi memory; scales on request count (KEDA HTTP add-on or HPA on custom metrics)
 - GenAI Chat API: requests 256m CPU / 512Mi memory; LLM and embedding work is offloaded to Bedrock, so compute needs are light
@@ -123,18 +123,18 @@ If the team wants to keep pgvector for simplicity, **Aurora PostgreSQL Serverles
 
 #### Fallback: Lambda + API Gateway
 
-If EKS is not available in the target account or region at deployment time, each API service can be re-packaged as a Lambda function behind an API Gateway HTTP API:
+If EKS is not available in the target account or region at deployment time, each API concern can be re-packaged as a Lambda function behind an API Gateway HTTP API:
 
 | Service | Lambda Fallback |
 |---|---|
-| **Search API** | Lambda (Node.js 20.x) + API Gateway HTTP API; `GET /api/search*` and `GET /api/documents*` map to Lambda handlers |
-| **GenAI Chat API** | Lambda (Node.js 20.x) + API Gateway HTTP API; streaming responses use Lambda response streaming (`InvokeWithResponseURL`) |
-| **Member Benefits API** | Lambda (Node.js 20.x) + API Gateway HTTP API |
-| **ETL Pipelines** | Step Functions + Lambda (Node.js 20.x); each ETL stage is a separate Lambda function (15-minute limit applies — split large batches accordingly) |
+| **Search API** | Lambda (Node.js 22.x) + API Gateway HTTP API; `GET /api/search*` and `GET /api/documents*` map to Lambda handlers |
+| **GenAI Chat API** | Lambda (Node.js 22.x) + API Gateway HTTP API; streaming responses use Lambda response streaming (`InvokeWithResponseURL`) |
+| **Member Benefits API** | Lambda (Node.js 22.x) + API Gateway HTTP API |
+| **ETL Pipelines** | Step Functions + Lambda (Node.js 22.x); each ETL stage is a separate Lambda function (15-minute limit applies — split large batches accordingly) |
 
 > Lambda's **15-minute execution limit** is a constraint for ETL steps that process large documents or large batches. Mitigate by splitting work into smaller per-document or per-chunk Lambda invocations coordinated by Step Functions Map states, or by using Textract's asynchronous job API (start job → poll or receive SNS notification → process results in a subsequent Lambda).
 
-**Key difference from PoC:** The PoC runs the embedding model in-process (Node.js ONNX). In production, embedding is an API call to Bedrock, so the compute services need very little local CPU/memory regardless of whether EKS or Lambda is used.
+**Key difference from PoC:** The PoC runs the embedding model in-process (Node.js ONNX) inside a single container that also handles chat and member routes. In production, embedding is an API call to Bedrock, so the compute services need very little local CPU/memory regardless of whether they're deployed as one service or three, and regardless of whether EKS or Lambda is used — the split into three deployable units is primarily about independent scaling and blast-radius isolation, not resource requirements.
 
 ### 5. ETL Pipelines
 
@@ -377,7 +377,7 @@ EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
 
 ### 7. Frontend
 
-**PoC:** Three Express apps serve static HTML frontends from `public/`.
+**PoC:** A single Express app (`portal`) serves three static HTML frontends from `public/search`, `public/chat`, and `public/member`, plus a tab-shell landing page at `/`.
 
 **AWS Production:**
 - **S3 + CloudFront** for static assets (search UI, chat UI, and member benefits UI)

@@ -2,6 +2,7 @@
 
 **Date**: March 16, 2026  
 **Last reviewed**: August 4, 2026 — PoC code findings remain open and accurate; Section 10 (Production Architecture) updated to reflect current AWS doc state.  
+**2026-08-24 update**: `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service (`services/portal/`). File references to `services/app/src/index.js` and `services/genai-search/src/index.js` below now correspond to `services/portal/src/routes/search.js` and `services/portal/src/routes/chat.js` respectively. Finding 1.2 (model loaded 3x) is now more accurate as loaded 3x total (once in `portal`, once each in `etl-documents` and `etl-webcrawl`), down from 4x. A new prompt-engineering consideration was added: chat can now optionally inject a member's own claims context (see "Member Context Injection" under Section 5).  
 **Scope**: Embedding model, chunking strategy, RAG pipeline, LLM integration, prompt engineering, search quality, session management, streaming implementation
 
 > **Diagrams:** [RAG Chat Request Sequence](diagrams/rag-chat-sequence.md) · [ETL Pipeline](diagrams/etl-pipeline.md) · [System Architecture](diagrams/system-architecture.md)
@@ -30,7 +31,7 @@ The search services correctly apply the prefix at query time. The ETL pipelines 
 
 ### Finding 1.2 — LOW: Model loaded 3 separate times across services
 
-The same model is loaded independently in `app`, `genai-search`, and both ETL containers. This means ~130MB of ONNX model memory × 3 at runtime. Acceptable for Docker Compose architecture but worth noting for memory footprint.
+The same model is loaded independently in `portal` (search + chat routes share one in-process instance) and both ETL containers (`etl-documents`, `etl-webcrawl`). This means ~130MB of ONNX model memory × 3 at runtime — down from ×4 before the `app`/`genai-search`/`member-benefits-app` merge, since `portal`'s search and chat routes now share the same Node.js process and the same `lib/embedding.js` singleton. Acceptable for Docker Compose architecture but worth noting for memory footprint.
 
 ### Finding 1.3 — INFO: 384 dimensions is a reasonable trade-off
 
@@ -240,6 +241,15 @@ Question: What is the 401k match?
 Answer using only the numbered sources above. Cite sources as [1], [2], etc.
 ```
 
+### Finding 5.3 — NEW (2026-08-24) — MEDIUM: Member context injection has no similarity/relevance filtering and is unauthenticated
+
+`services/portal/src/routes/chat.js` now accepts an optional `memberEmail` and, when present, appends a second plain-text context block (open claims, claims summary, deductible status) built from **plain SQL lookups** — not vector search — ahead of the user's question. This is a deliberate scope choice (see the merge discussion: building `sp_search_claims` over the existing but unused `claims`/`claims_logs` embeddings was judged not worth it for structured data), and it works well for the demo. Two things worth tracking if this grows beyond a demo:
+
+- **No relevance gating**: the entire member context block (up to `MEMBER_CONTEXT_MAX_CHARS`, default 2000 chars) is always injected once a member is selected, even for purely general questions ("what is the FMLA policy?"). The system prompt asks the model to only use it for personal questions, but nothing prevents the model from referencing personal data unprompted, or wastes tokens on irrelevant context for general questions.
+- **No authorization check** on `memberEmail` — this is really an access-control finding, not an AI/RAG finding; see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the full writeup. Noted here because it directly affects prompt-injection risk surface: a malicious `memberEmail` value is passed through `resolveMember()` (parameterized SQL, safe from injection) but the resulting claims data is trusted content mixed into the same prompt as retrieved document/web chunks, so anything a member's claims record can hold (e.g. `notes`, `provider` free-text fields, if ever attacker-controlled) would sit in the same trust tier as the RAG context.
+
+**Recommendation:** If this feature moves beyond a demo, (1) only build/send the member context block when the question is classified or heuristically detected as personal (reuse a lightweight version of the same keyword approach as the old `/api/member/bot`, or a cheap classifier call), and (2) require the caller to prove ownership of the member identity (session-linked, not a free-text field) before resolving claims data.
+
 ---
 
 ## 6. Search Quality (SQL / pgvector)
@@ -365,6 +375,7 @@ The AWS Production Architecture document is **exceptionally thorough**:
 | 3.2 | **MEDIUM** | No similarity distance threshold — irrelevant chunks sent to LLM |
 | 4.1 | **MEDIUM** | Qwen 2.5 3B struggles with complex multi-hop benefits questions |
 | 5.1 | **MEDIUM** | System prompt too permissive — "when possible" weakens citation/grounding |
+| 5.3 | **MEDIUM** | *(New, 2026-08-24)* Member context injection in chat has no relevance gating and no authorization check on `memberEmail` |
 | 7.1 | **MEDIUM** | Session message array grows unbounded in memory |
 | 4.2 | **LOW** | No temperature setting — defaults increase hallucination risk |
 | 2.3 | **LOW** | Page/section embeddings truncated to first 512 chars |

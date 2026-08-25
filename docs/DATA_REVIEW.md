@@ -1,6 +1,7 @@
 # Data Layer Review — document-search
 
 **Date**: March 16, 2026  
+**2026-08-24 update**: Two real bugs were found and fixed in the claims ETL while deploying the merged `portal` service for review (not by static review) — see new findings **F27** and **F28** below. **F11** (unused `BATCH_SIZE`) is now resolved for `etl-documents`/`etl-webcrawl`. The schema also gained a new table, `etl_change_logs` (see F28).  
 **Scope**: Schema design, pgvector configuration, stored procedures, ETL pipelines, query patterns, connection pooling, data integrity, migration strategy
 
 > **Diagrams:** [Database Schema ER Diagram](diagrams/database-schema.md) · [ETL Pipeline](diagrams/etl-pipeline.md)
@@ -109,9 +110,9 @@ This is not idempotent in the HNSW sense — every run deletes and rebuilds inde
 
 **Recommendation:** Use `content_hash` (already present in `web_sources`) to detect changes and skip unchanged documents. For the document pipeline, add a similar hash column to `documents`. Only delete/reinsert chunks when content actually changed.
 
-**[F11] HIGH — `BATCH_SIZE` is defined but never used**
+**[F11] ~~HIGH~~ ✅ RESOLVED (2026-08-24) — `BATCH_SIZE` was defined but never used**
 
-`const BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 64;` is declared but never referenced. The `embedBatch` function embeds sequentially one-at-a-time in a for-loop:
+`const BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 64;` was declared in `etl-documents` and `etl-webcrawl` but never referenced. The `embedBatch` function embeds sequentially one-at-a-time in a for-loop:
 ```js
 async function embedBatch(texts) {
   const results = [];
@@ -123,7 +124,9 @@ async function embedBatch(texts) {
 ```
 This provides no actual batching to the model.
 
-**Recommendation:** Implement true batch embedding or at minimum use `Promise.all` with a concurrency limiter. Also batch the DB inserts using a single multi-row INSERT or `COPY` instead of one `SELECT sp_upsert_*()` call per chunk.
+**Resolution:** Removed the unused variable and its corresponding `BATCH_SIZE` docker-compose env line from both services. `embedBatch()` in `lib/embedding.js` itself is unchanged — it still embeds sequentially, so the underlying "no true batching to the model" observation still applies; only the dead/misleading configuration variable was removed. `services/etl-claims-line/vectorize.js` genuinely uses `BATCH_SIZE` to batch its own record processing loop and was left as-is.
+
+**Recommendation (still open):** Implement true batch embedding or at minimum use `Promise.all` with a concurrency limiter. Also batch the DB inserts using a single multi-row INSERT or `COPY` instead of one `SELECT sp_upsert_*()` call per chunk.
 
 **[F12] MEDIUM — Page embeddings truncate to first 512 chars; chunks use full text**
 
@@ -157,6 +160,27 @@ ETL `embed()` does not use a prefix. App/GenAI `embed()` uses `BGE_QUERY_PREFIX`
 If an ETL run takes longer than the cron interval (default: 1 hour), `node-cron` will trigger a second overlapping run. There's no lock or "already running" guard.
 
 **Recommendation:** Add a simple in-memory flag (`let running = false`) or use a DB advisory lock.
+
+**[F27] HIGH — NEW (2026-08-24), now resolved — `CALL` used on SQL functions instead of `SELECT`, breaking every claims ETL run**
+
+`services/etl-claims-line/vectorize.js` invoked `sp_etl_complete_job` and `sp_etl_fail_job` with `CALL`:
+```js
+await pool.query('CALL sp_etl_complete_job($1, $2, $3, $4, $5)', [...]);
+await pool.query('CALL sp_etl_fail_job($1, $2)', [...]);
+```
+But both are declared with `CREATE OR REPLACE FUNCTION` in `infra/db/init/06_stored_procedures.sql`, not `CREATE PROCEDURE`. PostgreSQL functions must be invoked with `SELECT`, not `CALL` — using `CALL` on a function raises error `42809` (`... is not a procedure`). `etl-documents` and `etl-webcrawl` correctly use `SELECT` for the same functions, so this asymmetry (present since the claims ETL was added) went unnoticed until a real deployment was attempted.
+
+**Impact:** Every claims-line ETL run failed at the point it tried to log completion or failure, meaning the `claims`/`claims_logs` tables were never actually populated — not merely under-batched or slow, but completely non-functional.
+
+**Resolution:** Changed both calls to `SELECT sp_etl_complete_job(...)` / `SELECT sp_etl_fail_job(...)`, matching `etl-documents`/`etl-webcrawl`.
+
+**[F28] HIGH — NEW (2026-08-24), now resolved — `sp_etl_log_change` and its backing table did not exist**
+
+The claims ETL's field-level change-detection step calls `CALL sp_etl_log_change($1, $2, $3, $4, $5, $6, $7)` for every created/updated/deleted claim (see [etl-pipeline.md](diagrams/etl-pipeline.md#claims-etl-detail), which already documented this step). Neither the procedure nor its backing table (`etl_change_logs`, referenced in `docs/TECH_STACK.md` as "change log written to `etl_change_logs`") existed anywhere in `infra/db/init/`. Combined with F27, this meant the ETL failed on essentially the first record it tried to process (since nearly every claim is "new" on first run and triggers a change-log write).
+
+**Resolution:** Added `infra/db/init/14_etl_change_logs.sql` defining the `etl_change_logs` table (`source_table`, `member_email`, `change_type`, `field_name`, `old_value`, `new_value`, `job_id`, `created_at`) and the `sp_etl_log_change` procedure, matching the parameter order the ETL code already used. This is additive (`CREATE TABLE IF NOT EXISTS`) and safe to apply to existing databases without data loss.
+
+**Lesson:** This is exactly the kind of gap the review's own recommendations (F13 transactions, more integration testing) would have caught earlier — a single test that ran the claims ETL against a real database, even without asserting on data quality, would have surfaced both F27 and F28 immediately.
 
 ---
 
@@ -267,10 +291,11 @@ All tables are created in the default `public` schema. Functions don't set `sear
 
 | Severity | # | Key Findings |
 |----------|---|---|
-| **HIGH** | 3 | F7 (UNION ALL defeats HNSW), F10 (delete-rebuild index churn), F22 (stale pages survive) |
-| **MEDIUM** | 8 | F1 (unconstrained categories), F4 (HNSW tuning), F8 (category filter path), F11 (unused BATCH_SIZE), F12 (page embedding truncation), F13 (no transaction wrapping), F17 (extra count query), F20 (Pool defaults), F23 (content_hash unused), F25 (no migration framework) |
+| **HIGH** | 3 open + 2 resolved | Open: F7 (UNION ALL defeats HNSW), F10 (delete-rebuild index churn), F22 (stale pages survive). Resolved 2026-08-24: F27 (`CALL` vs `SELECT` broke claims ETL), F28 (`sp_etl_log_change`/`etl_change_logs` didn't exist) |
+| **MEDIUM** | 7 | F1 (unconstrained categories), F4 (HNSW tuning), F8 (category filter path), F12 (page embedding truncation), F13 (no transaction wrapping), F17 (extra count query), F20 (Pool defaults), F23 (content_hash unused), F25 (no migration framework) |
 | **LOW** | 7 | F2, F3, F9, F14, F16, F18, F19, F21, F24, F26 |
 | **INFO** | 2 | F5 (vector dims correct), F6 (cosine ops correct), F15 (BGE prefix asymmetry — correct but undocumented) |
+| **RESOLVED** | 3 | F11 (unused `BATCH_SIZE`, 2026-08-24), F27, F28 |
 
 ---
 

@@ -87,6 +87,8 @@ flowchart TD
 
 The claims ETL has an additional field-level **change detection** step that the document and web ETLs omit. This lets it produce an audit log of exactly which fields changed for each claim.
 
+> **2026-08-24 fix:** This diagram already showed the intended `sp_etl_log_change` step, but until this date the procedure and its backing table (`etl_change_logs`) did not actually exist in `infra/db/init/`, and `sp_etl_complete_job`/`sp_etl_fail_job` were incorrectly invoked with `CALL` instead of `SELECT` (they are SQL functions, not procedures). Both bugs caused every claims-line ETL run to fail. Fixed by adding `infra/db/init/14_etl_change_logs.sql` and correcting the `CALL`/`SELECT` usage in `services/etl-claims-line/vectorize.js`. See [database-schema.md](database-schema.md#claims-etl-procedures) for the full procedure reference.
+
 ```mermaid
 flowchart TD
     A["node-cron fires\n(default: hourly)"] --> B["sp_etl_start_job → job_id"]
@@ -97,13 +99,13 @@ flowchart TD
     F -- "No (new)" --> G["embed claimText\n(type + provider + status)"]
     F -- "Yes (existing)" --> H["Compare PRIMARY_COMPARE_FIELDS\nfield by field"]
     H --> I{"Fields changed?"}
-    I -- "Yes" --> J["sp_etl_log_change\n(field, old_value, new_value)"]
+    I -- "Yes" --> J["sp_etl_log_change\n(field, old_value, new_value)\n→ etl_change_logs"]
     J --> G
     I -- "No" --> E
     G --> K["sp_upsert_claim\n(all fields + embedding)"]
     K --> E
     E -- "all claims done" --> L["Read logs.json → activity events"]
     L --> M["embed logText per event"]
-    M --> N["sp_upsert_claim_log\nON CONFLICT UPDATE"]
+    M --> N["sp_insert_claim_log\n(one row per event)"]
     N --> O["sp_etl_complete_job"]
 ```

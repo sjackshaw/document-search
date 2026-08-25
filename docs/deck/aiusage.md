@@ -104,7 +104,7 @@ The answer is grounded in the organisation's own content. The model cannot inven
 ### How it is implemented
 
 ```js
-// services/genai-search/src/index.js
+// services/portal/src/routes/chat.js
 
 const SYSTEM_PROMPT = `You are a helpful benefits assistant. Answer questions about
 employee benefits using ONLY the provided context. If the context does not contain
@@ -145,7 +145,7 @@ Before a search query is converted to a vector, `queryParser.js` applies two lig
 This is **rule-based NLP, not a machine learning model**. The alias table is hand-curated and covers the vocabulary of the benefits domain.
 
 ```js
-// services/app/src/queryParser.js — category aliases (excerpt)
+// services/portal/src/queryParser.js — category aliases (excerpt)
 const CATEGORY_ALIASES = {
   '401k': 'retirement',  '401(k)': 'retirement',  'pension': 'retirement',
   'dental': 'dental',    'vision': 'vision',        'eye': 'vision',
@@ -167,7 +167,7 @@ Every message sent to the Benefits Chat or Member Benefits Assistant is scanned 
 
 ### How it is implemented
 
-`escalation.js` (shared between `genai-search` and `member-benefits-app`) applies 10 regex patterns:
+`escalation.js` (shared by the Benefits Chat and Member Benefits Assistant routes) applies 10 regex patterns:
 
 | Signal | Pattern Matches |
 |---|---|

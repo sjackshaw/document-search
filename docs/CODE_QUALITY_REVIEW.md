@@ -1,6 +1,7 @@
 # Code Quality Review — document-search
 
 **Date**: March 16, 2026  
+**2026-08-24 update**: `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service (`services/portal/`, one `package.json`/`Dockerfile`, three route modules under `src/routes/`). This resolves finding **9c (monolithic route files)** — the ~320-line `app` and ~230-line `genai-search` index files are now split into `search.js`, `chat.js`, and `member.js`. It also further reduces the code-duplication surface beyond the original `lib/embedding.js` extraction (item 1): there is now one `package.json`, one `Dockerfile`, and one `escalation.js` (previously duplicated verbatim across `genai-search` and `member-benefits-app`, now a single file). Finding **17 (unused `BATCH_SIZE`)** is now resolved for `etl-documents`/`etl-webcrawl`. Two real, previously-undetected bugs were also found and fixed in `etl-claims-line` during this work — see the new item 4e below.  
 **Scope**: All application services, ETL pipelines, Docker configuration, testing, and Express patterns
 
 ---
@@ -30,6 +31,8 @@ The project is well-structured at the macro level with clean service separation,
 **Resolution:** Added `.dockerignore` to each service directory (`services/app/`, `services/genai-search/`, `services/etl-documents/`, `services/etl-webcrawl/`) excluding `node_modules`, `test`, `data`, and `*.md`. Added a root `.dockerignore` excluding `.git`, `node_modules`, `*.md`, `docs/`, `.env*`, and `*.py`. Dockerfiles updated to use targeted `COPY` paths instead of `COPY . .`.
 
 **August 4, 2026 — Extended:** Two new services added since the original resolution also include `.dockerignore` files: `services/etl-claims-line/.dockerignore` and `services/member-benefits-app/.dockerignore`. All six service directories are now covered.
+
+**2026-08-24 — Consolidated:** `services/app/.dockerignore`, `services/genai-search/.dockerignore`, and `services/member-benefits-app/.dockerignore` were replaced by a single `services/portal/.dockerignore` as part of the merge. Four service directories are now covered: `services/portal/`, `services/etl-documents/`, `services/etl-webcrawl/`, `services/etl-claims-line/`.
 
 ### 3b. No multi-stage builds — MEDIUM
 
@@ -100,6 +103,19 @@ The documents ETL has an unhandled promise rejection if `runEtl()` throws. The w
 
 `services/app/src/index.js` uses `fs.existsSync()` in request handlers, blocking the event loop. Use `fs.promises.access()` or `fs.stat` with a callback instead.
 
+**2026-08-24:** This code now lives in `services/portal/src/routes/search.js` (`GET /api/pdfs/:filename`, `GET /api/web-pages/:filename`) — the finding still applies, just at a new file path.
+
+### 4e. NEW (2026-08-24) — `etl-claims-line` shipped with two undetected bugs that made every run fail
+
+Found while deploying the merged `portal` service for review, not by static review:
+
+1. **Wrong invocation convention**: `sp_etl_complete_job`/`sp_etl_fail_job` are SQL **functions**, but `services/etl-claims-line/vectorize.js` called them with `CALL` (valid only for `PROCEDURE`s), raising PostgreSQL error `42809` (`... is not a procedure`).
+2. **Missing schema**: `sp_etl_log_change` (also called via `CALL`) had no backing procedure or table (`etl_change_logs`) anywhere in `infra/db/init/`, despite being documented as existing in `docs/TECH_STACK.md`.
+
+Both bugs meant the claims ETL failed on every run, leaving the `claims` and `claims_logs` tables empty. Fixed by correcting the `CALL`/`SELECT` usage and adding `infra/db/init/14_etl_change_logs.sql`. This highlights a gap in the near-zero test coverage noted in Section 8 — a single integration test that ran the claims ETL against a real (or test) database would have caught this immediately.
+
+**Also fixed in the same pass**: `services/etl-claims-line/Dockerfile` was missing the `@xenova/transformers/.cache` `mkdir`/`chown` step present in the other three service Dockerfiles, causing `EACCES` on model download.
+
 ---
 
 ## 5. Memory Management — HIGH
@@ -124,13 +140,13 @@ The session-purge interval is never cleared, keeping the process alive even afte
 
 ## 6. Package.json Hygiene — MEDIUM
 
-### 6a. Unused `uuid` dependency — MEDIUM
+### 6a. ~~Unused `uuid` dependency~~ — ✅ RESOLVED (2026-08-24)
 
-`services/genai-search/package.json` lists `"uuid": "^9.0.0"` but the code uses `crypto.randomUUID()`. The `uuid` package is never imported. Remove it.
+`services/genai-search/package.json` listed `"uuid": "^9.0.0"` but the code used `crypto.randomUUID()`. The `uuid` package was never imported. Resolved by the merge into `services/portal` — `portal/package.json` never listed it.
 
-### 6b. Dead `BATCH_SIZE` variable — LOW
+### 6b. ~~Dead `BATCH_SIZE` variable~~ — ✅ RESOLVED (2026-08-24)
 
-`BATCH_SIZE` is declared in both ETL vectorize files, set via docker-compose env, but **never referenced** anywhere in the code logic. Items are processed one at a time, not in batches.
+`BATCH_SIZE` was declared in both `etl-documents` and `etl-webcrawl` vectorize files, set via docker-compose env, but never referenced anywhere in the code logic. Removed the unused variable from both files and the corresponding `BATCH_SIZE` env line from `docker-compose.etl-documents.yml`/`docker-compose.etl-webcrawl.yml`. `services/etl-claims-line/vectorize.js` genuinely uses `BATCH_SIZE` for real batching (`for (let index = 0; index < records.length; index += BATCH_SIZE)`) and was left unchanged; it is also still documented in `.env.example`.
 
 ### 6c. `@xenova/transformers` deprecation notice — LOW
 
@@ -164,10 +180,10 @@ All compose files use `postgres/postgres` as default credentials. Acceptable for
 
 | Service | Tests | Coverage |
 |---|---|---|
-| `app` | 5 unit tests (`services/app/test/queryParser.test.js`) | `queryParser.js` only |
-| `genai-search` | 1 placeholder (`services/genai-search/test/placeholder.test.js`) | **0%** — `expect(true).toBe(true)` |
+| `portal` | 20 unit tests (`queryParser.test.js`, `member-benefits.test.js`) + RAG regression suite (`rag-regression.test.js`, skips if service unreachable) | `queryParser.js` and `member-benefits.js` only |
 | `etl-documents` | 0 | **0%** |
 | `etl-webcrawl` | 0 | **0%** |
+| `etl-claims-line` | 0 | **0%** — see item 4e; a basic integration test would have caught two real bugs before they shipped |
 
 **Not tested at all:**
 - Any Express route handler
@@ -197,9 +213,9 @@ Each route handler has its own `try/catch` with inline `console.error` + `res.st
 
 The `q` parameter validation block is identical across 4 search routes in `services/app/src/index.js`. Extract to a `validateQuery` middleware.
 
-### 9c. Monolithic route files — LOW
+### 9c. ~~Monolithic route files~~ — ✅ RESOLVED (2026-08-24)
 
-`services/app/src/index.js` is ~320 lines with 9 route handlers. `services/genai-search/src/index.js` is ~230 lines mixing session management, embedding, Ollama communication, and HTTP routes. Both would benefit from splitting into route modules.
+`services/app/src/index.js` was ~320 lines with 9 route handlers, and `services/genai-search/src/index.js` was ~230 lines mixing session management, embedding, Ollama communication, and HTTP routes. Both are now split into `services/portal/src/routes/search.js`, `chat.js`, and `member.js` (plus a thin `services/portal/src/index.js` that just wires up middleware and static serving), as part of the `app`/`genai-search`/`member-benefits-app` merge into `portal`.
 
 ---
 
@@ -239,15 +255,15 @@ The `q` parameter validation block is identical across 4 search routes in `servi
 | 10 | Sync `fs.existsSync()` in request handlers | **MEDIUM** | Performance |
 | 11 | Session messages grow without bound | **MEDIUM** | Memory |
 | 12 | `sp_search_all` UNION ALL without sub-limits | **MEDIUM** | SQL perf |
-| 13 | Unused `uuid` dependency in genai-search | **MEDIUM** | Dependencies |
+| 13 | ~~Unused `uuid` dependency in genai-search~~ | ~~MEDIUM~~ ✅ | Dependencies |
 | 14 | No security headers / rate limiting | **MEDIUM** | Security |
 | 15 | No centralized error-handling middleware | **MEDIUM** | Express |
 | 16 | No multi-stage Docker builds | **MEDIUM** | Docker |
-| 17 | Unused `BATCH_SIZE` variable in both ETL services | **LOW** | Dead code |
+| 17 | ~~Unused `BATCH_SIZE` variable in both ETL services~~ | ~~LOW~~ ✅ | Dead code |
 | 18 | Redundant SQL indexes on UNIQUE columns | **LOW** | SQL |
 | 19 | `--passWithNoTests` masks missing tests | **LOW** | Testing |
 | 20 | `setInterval` for session cleanup never unref'd | **LOW** | Memory |
 | 21 | Repeated query validation pattern (4 routes) | **LOW** | Duplication |
-| 22 | Monolithic route files | **LOW** | Structure |
+| 22 | ~~Monolithic route files~~ | ~~LOW~~ ✅ | Structure |
 | 23 | Default `postgres/postgres` credentials | **LOW** | Security (dev) |
 | 24 | No ETL log retention policy | **LOW** | SQL |

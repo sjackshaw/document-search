@@ -1,6 +1,7 @@
 # Documentation Review Report — document-search
 
 **Date**: August 4, 2026  
+**2026-08-24 update**: `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service. `docs/README.md`, `docs/TECH_STACK.md`, `docs/AWS_PRODUCTION_ARCHITECTURE.md`, and all four `docs/diagrams/*.md` files were updated in this pass to reflect the new single-service architecture, the `/api/member/*` route rename, the new chat member-context personalization feature, and the `etl_change_logs` schema addition. The scorecard and gap analysis below describe the **August 4, 2026** state of the docs (three application services, ports 3000/3001/3002) and should be read as a point-in-time assessment superseded by the updates above — not re-scored here, since this report's purpose is historical tracking of documentation maturity over time, not a live description of the current architecture.  
 **Scope**: docs README, AWS production architecture, technology stack, setup guidance, API coverage, environment-variable documentation
 
 ---
@@ -84,7 +85,7 @@ The main operational gaps still worth addressing later are:
 
 - a troubleshooting section for Docker daemon issues, port collisions, and failed model pulls
 - a short data-reset section explaining when to use `npm run teardown` versus regenerating synthetic data only
-- a note that `member-benefits-app` enforces `x-api-key` on `/api/*` routes when `API_KEY` is set
+- a note that `member-benefits-app` enforces `x-api-key` on `/api/*` routes when `API_KEY` is set (**2026-08-24: this is now `/api/member/*` within the merged `portal` service** — see `docs/README.md`)
 
 ---
 
