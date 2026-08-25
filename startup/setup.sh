@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILES="-f docker-compose.postgres.yml -f docker-compose.app.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.genai-search.yml -f docker-compose.etl-claims-line.yml -f docker-compose.member-benefits-app.yml"
+COMPOSE_FILES="-f docker-compose.postgres.yml -f docker-compose.ollama.yml -f docker-compose.portal.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.etl-claims-line.yml"
 
 heading() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 ok()      { printf '    \033[1;32m✔ %s\033[0m\n' "$1"; }
@@ -97,11 +97,11 @@ docker compose $COMPOSE_FILES exec -T ollama ollama pull "$OLLAMA_MODEL" || echo
 ok "Model ready"
 
 heading "Ready"
-echo "    App:          http://localhost:3000"
-echo "    GenAI Chat:   http://localhost:3001"
-echo "    Member Bot:   http://localhost:3002"
-echo "    Ollama:       http://localhost:11434"
-echo "    Postgres:     localhost:5433  (user: postgres / db: appdb)"
+echo "    Portal (search):   http://localhost:3000"
+echo "    Portal (chat):     http://localhost:3000/chat"
+echo "    Portal (member):   http://localhost:3000/member"
+echo "    Ollama:            http://localhost:11434"
+echo "    Postgres:          localhost:5433  (user: postgres / db: appdb)"
 echo ""
 echo "    View logs:   npm run dev:logs"
 echo "    Stop stack:  npm run teardown"

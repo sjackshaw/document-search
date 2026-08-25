@@ -3,12 +3,12 @@
 /**
  * RAG Regression Suite (#9)
  *
- * Integration tests that call the running genai-search service at
- * TEST_BASE_URL (default: http://localhost:3001) and verify that
+ * Integration tests that call the running portal service's chat routes at
+ * TEST_BASE_URL (default: http://localhost:3000) and verify that
  * answers to golden Q&A pairs contain expected keywords.
  *
  * Run with:
- *   npm test  (from services/genai-search/ while the stack is running)
+ *   npm test  (from services/portal/ while the stack is running)
  *
  * The suite skips automatically when the service is unreachable, so it
  * is safe to include in CI pipelines that don't spin up the full stack.
@@ -19,7 +19,7 @@
  *   - notKeywords: strings that must NOT appear (hallucination guards)
  */
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 const TIMEOUT_MS = 60_000; // Ollama on CPU can be slow
 
 // Golden test cases — update/extend as content is added to the index
@@ -124,7 +124,6 @@ describe('RAG regression suite', () => {
   });
 
   for (const tc of GOLDEN_CASES) {
-    // eslint-disable-next-line no-loop-func
     test(`[${tc.id}] "${tc.question}"`, async () => {
       if (!serviceAvailable) {
         console.warn(`Skipping: service not running at ${BASE_URL}`);

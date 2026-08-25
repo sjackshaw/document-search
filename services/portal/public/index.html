@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Benefits Portal</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f0f2f5;
+    color: #1a1a1a;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: #fff;
+    border-bottom: 1px solid #d0d7de;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #24292f;
+    white-space: nowrap;
+  }
+
+  nav {
+    display: flex;
+    gap: 4px;
+  }
+
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #57606a;
+    font: inherit;
+    font-weight: 500;
+    font-size: 14px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  nav button:hover {
+    background: #f0f2f5;
+    color: #24292f;
+  }
+
+  nav button.active {
+    background: #0969da;
+    color: #fff;
+  }
+
+  main {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+
+  .panel {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+
+  .panel.active {
+    display: block;
+  }
+
+  .panel iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+
+  .panel .loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #656d76;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Benefits Portal</h1>
+    <nav>
+      <button type="button" data-tab="search" class="active">Search</button>
+      <button type="button" data-tab="chat">Chat</button>
+      <button type="button" data-tab="member">My Benefits</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="panel active" data-panel="search">
+      <iframe title="Document &amp; web search" data-src="/search/"></iframe>
+    </div>
+    <div class="panel" data-panel="chat">
+      <div class="loading">Loading chat…</div>
+      <iframe title="Benefits chat" data-src="/chat/"></iframe>
+    </div>
+    <div class="panel" data-panel="member">
+      <div class="loading">Loading member portal…</div>
+      <iframe title="My benefits" data-src="/member/"></iframe>
+    </div>
+  </main>
+
+  <script>
+    const buttons = document.querySelectorAll('nav button[data-tab]');
+    const panels = document.querySelectorAll('.panel[data-panel]');
+
+    function activate(tab) {
+      buttons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+      panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tab));
+
+      // Lazily load each iframe's content the first time its tab is shown,
+      // so we don't eagerly hit /chat and /member (and their backing
+      // services) before the user asks for them.
+      const panel = document.querySelector(`.panel[data-panel="${tab}"]`);
+      const iframe = panel.querySelector('iframe');
+      if (iframe.dataset.src && !iframe.src) {
+        iframe.addEventListener('load', () => {
+          const loading = panel.querySelector('.loading');
+          if (loading) loading.remove();
+        }, { once: true });
+        iframe.src = iframe.dataset.src;
+      }
+    }
+
+    buttons.forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.tab)));
+
+    // The search panel is the default/active tab and loads immediately.
+    activate('search');
+  </script>
+</body>
+</html>

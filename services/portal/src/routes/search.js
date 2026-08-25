@@ -1,23 +1,30 @@
+'use strict';
+
+// Document & web content search routes, plus admin content management and
+// ETL job history. Merged from the former standalone `app` service.
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { Pool } = require('pg');
-const { embedQuery } = require('../../../lib/embedding');
-const { parseQuery } = require('./queryParser');
-
-const app = express();
-app.use(express.json());
+const pool = require('../db');
+const { embedQuery } = require('../../../../lib/embedding');
+const { parseQuery } = require('../queryParser');
 
 const PDF_DIR = process.env.PDF_DIR || '/data/pdfs';
 const WEB_PAGES_DIR = process.env.WEB_PAGES_DIR || '/data/web-pages';
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
-const pool = new Pool();
+function requireAdmin(req, res, next) {
+  if (ADMIN_KEY && req.headers['x-admin-key'] !== ADMIN_KEY) {
+    return res.status(401).json({ error: 'Admin key required' });
+  }
+  return next();
+}
 
-// Static UI
-app.use(express.static(path.join(__dirname, '..', 'public')));
+const router = express.Router();
 
 // Serve PDFs for in-browser viewing
-app.get('/api/pdfs/:filename', (req, res) => {
+router.get('/pdfs/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(PDF_DIR, filename);
   if (!fs.existsSync(filePath)) {
@@ -28,13 +35,8 @@ app.get('/api/pdfs/:filename', (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
 // Semantic search across document chunks
-app.get('/api/search', async (req, res) => {
+router.get('/search', async (req, res) => {
   try {
     const q = req.query.q;
     if (!q || typeof q !== 'string' || q.trim().length === 0) {
@@ -71,7 +73,7 @@ app.get('/api/search', async (req, res) => {
 });
 
 // Page-level search (coarser grain)
-app.get('/api/search/pages', async (req, res) => {
+router.get('/search/pages', async (req, res) => {
   try {
     const q = req.query.q;
     if (!q || typeof q !== 'string' || q.trim().length === 0) {
@@ -100,7 +102,7 @@ app.get('/api/search/pages', async (req, res) => {
 });
 
 // Lookup a document by filename
-app.get('/api/documents/:filename', async (req, res) => {
+router.get('/documents/:filename', async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM sp_lookup_document($1)',
@@ -128,7 +130,7 @@ app.get('/api/documents/:filename', async (req, res) => {
 });
 
 // List all documents (paginated)
-app.get('/api/documents', async (req, res) => {
+router.get('/documents', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
@@ -164,7 +166,7 @@ app.get('/api/documents', async (req, res) => {
 });
 
 // ETL job history
-app.get('/api/etl-jobs', async (_req, res) => {
+router.get('/etl-jobs', async (_req, res) => {
   try {
     const result = await pool.query('SELECT * FROM sp_etl_job_history($1)', [50]);
     res.json({ jobs: result.rows });
@@ -177,7 +179,7 @@ app.get('/api/etl-jobs', async (_req, res) => {
 // ── Web content routes ──
 
 // Serve web pages for in-browser viewing
-app.get('/api/web-pages/:filename', (req, res) => {
+router.get('/web-pages/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(WEB_PAGES_DIR, filename);
   if (!fs.existsSync(filePath)) {
@@ -188,7 +190,7 @@ app.get('/api/web-pages/:filename', (req, res) => {
 });
 
 // Semantic search across web content chunks
-app.get('/api/search/web', async (req, res) => {
+router.get('/search/web', async (req, res) => {
   try {
     const q = req.query.q;
     if (!q || typeof q !== 'string' || q.trim().length === 0) {
@@ -225,7 +227,7 @@ app.get('/api/search/web', async (req, res) => {
 });
 
 // Unified search across documents and web content
-app.get('/api/search/all', async (req, res) => {
+router.get('/search/all', async (req, res) => {
   try {
     const q = req.query.q;
     if (!q || typeof q !== 'string' || q.trim().length === 0) {
@@ -262,7 +264,7 @@ app.get('/api/search/all', async (req, res) => {
 });
 
 // List web sources (paginated)
-app.get('/api/web-sources', async (req, res) => {
+router.get('/web-sources', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
@@ -297,22 +299,10 @@ app.get('/api/web-sources', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-const ADMIN_KEY = process.env.ADMIN_KEY || '';
-
-// ── Admin middleware ──────────────────────────────────────────────────────────
-
-function requireAdmin(req, res, next) {
-  if (ADMIN_KEY && req.headers['x-admin-key'] !== ADMIN_KEY) {
-    return res.status(401).json({ error: 'Admin key required' });
-  }
-  return next();
-}
-
 // ── Admin document management ─────────────────────────────────────────────────
 
 // Update a document's title or category
-app.patch('/api/documents/:id', requireAdmin, async (req, res) => {
+router.patch('/documents/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: 'Invalid document id' });
@@ -343,7 +333,7 @@ app.patch('/api/documents/:id', requireAdmin, async (req, res) => {
 });
 
 // Remove a document from the index (cascades to pages and chunks via FK)
-app.delete('/api/documents/:id', requireAdmin, async (req, res) => {
+router.delete('/documents/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: 'Invalid document id' });
@@ -361,6 +351,4 @@ app.delete('/api/documents/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Document search API listening on port ${PORT}`);
-});
+module.exports = router;

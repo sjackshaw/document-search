@@ -38,6 +38,40 @@
     }
     #new-chat-btn:hover { background: #0860ca; }
 
+    .member-picker {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #57606a;
+    }
+
+    .member-picker select {
+      font: inherit;
+      font-size: 13px;
+      padding: 5px 8px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      color: #24292f;
+      max-width: 220px;
+    }
+
+    .member-banner {
+      max-width: 860px;
+      width: 100%;
+      margin: 12px auto 0;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: #eef6f4;
+      border: 1px solid #b6e3d4;
+      color: #0f766e;
+      font-size: 13px;
+      display: none;
+    }
+
+    .member-banner.visible { display: block; }
+
     .chat-container {
       flex: 1;
       overflow-y: auto;
@@ -192,11 +226,19 @@
 <body>
   <header>
     <h1>Benefits AI Chat</h1>
-    <div style="display:flex;gap:10px;align-items:center">
-      <a href="/analytics.html" style="font-size:13px;color:#0969da;text-decoration:none">Analytics</a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <div class="member-picker">
+        <label for="member-select">Chatting as</label>
+        <select id="member-select">
+          <option value="">Documents only (no member)</option>
+        </select>
+      </div>
+      <a href="/chat/analytics.html" style="font-size:13px;color:#0969da;text-decoration:none">Analytics</a>
       <button id="new-chat-btn">New Chat</button>
     </div>
   </header>
+
+  <div class="member-banner" id="member-banner"></div>
 
   <div class="chat-container" id="chat">
     <div class="welcome">
@@ -217,9 +259,59 @@
     const questionEl = document.getElementById('question');
     const sendBtn = document.getElementById('send-btn');
     const newChatBtn = document.getElementById('new-chat-btn');
+    const memberSelect = document.getElementById('member-select');
+    const memberBanner = document.getElementById('member-banner');
 
     let sessionId = null;
     let sending = false;
+
+    function currentMemberEmail() {
+      return memberSelect.value || '';
+    }
+
+    function updateMemberBanner() {
+      const email = currentMemberEmail();
+      if (email) {
+        const label = memberSelect.options[memberSelect.selectedIndex]?.textContent || email;
+        memberBanner.textContent = `Chatting as ${label} — personal questions (open claims, deductible, plan usage) will use this member's record. General benefits questions still use the shared documents.`;
+        memberBanner.classList.add('visible');
+      } else {
+        memberBanner.textContent = '';
+        memberBanner.classList.remove('visible');
+      }
+    }
+
+    async function loadMembers() {
+      try {
+        const res = await fetch('/api/chat/members');
+        if (!res.ok) return;
+        const body = await res.json();
+        const saved = localStorage.getItem('benefitsMemberEmail') || '';
+        for (const member of body.members || []) {
+          const option = document.createElement('option');
+          option.value = member.memberEmail;
+          option.textContent = `${member.memberId} — ${member.memberEmail}`;
+          memberSelect.appendChild(option);
+        }
+        if (saved && body.members?.some(m => m.memberEmail === saved)) {
+          memberSelect.value = saved;
+        }
+      } catch {
+        // member list is a demo convenience; chat still works without it
+      }
+      updateMemberBanner();
+    }
+
+    memberSelect.addEventListener('change', () => {
+      if (memberSelect.value) {
+        localStorage.setItem('benefitsMemberEmail', memberSelect.value);
+      } else {
+        localStorage.removeItem('benefitsMemberEmail');
+      }
+      updateMemberBanner();
+    });
+
+    loadMembers();
 
     // Auto-resize textarea
     questionEl.addEventListener('input', () => {
@@ -272,7 +364,7 @@
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, sessionId }),
+          body: JSON.stringify({ question, sessionId, memberEmail: currentMemberEmail() || undefined }),
         });
 
         // Capture session ID from response header

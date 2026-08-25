@@ -1,25 +1,19 @@
 'use strict';
 
+// Member-scoped claims, plan, deductible, document generation, bot, and
+// enrollment routes. Merged from the former standalone `member-benefits-app`
+// service. All routes here require a resolvable member (via X-Member-Email
+// header or memberEmail query/body param) and are mounted under /api/member.
+
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
-const { Pool } = require('pg');
-const benefits = require('./member-benefits');
-const { detectEscalation } = require('./escalation');
-const { compareEnrollmentOptions } = require('./enrollment');
+const pool = require('../db');
+const benefits = require('../member-benefits');
+const { detectEscalation } = require('../escalation');
+const { compareEnrollmentOptions } = require('../enrollment');
 
-const app = express();
-const PORT = parseInt(process.env.PORT || '3002', 10);
 const API_KEY = process.env.API_KEY || '';
-const DOCUMENT_DIR = process.env.DOCUMENT_DIR || path.join(__dirname, '..', 'generated-docs');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@postgres:5432/appdb',
-});
-
-app.use(express.json({ limit: '1mb' }));
-
-// ── Chat log helper ───────────────────────────────────────────────────────────
+const DOCUMENT_DIR = process.env.DOCUMENT_DIR || path.join(__dirname, '..', '..', 'generated-docs');
 
 async function logBotQuery(question, escalationFlagged, escalationSignals) {
   try {
@@ -34,29 +28,9 @@ async function logBotQuery(question, escalationFlagged, escalationSignals) {
   }
 }
 
-app.get('/', (_req, res) => {
-  const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-  const injected = html.replace(
-    '</head>',
-    `<script>window.APP_API_KEY=${JSON.stringify(API_KEY)};</script>\n</head>`,
-  );
-  res.type('html').send(injected);
-});
+const router = express.Router();
 
-app.use('/documents', express.static(DOCUMENT_DIR));
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/health', async (_req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'ok', service: 'member-benefits-app' });
-  } catch (err) {
-    console.error('Health check failed:', err);
-    res.status(500).json({ status: 'error' });
-  }
-});
-
-app.use('/api', async (req, res, next) => {
+router.use(async (req, res, next) => {
   if (API_KEY && req.headers['x-api-key'] !== API_KEY) {
     return res.status(401).json({ error: 'Unauthorised' });
   }
@@ -73,12 +47,12 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-app.get('/api/session', async (req, res) => {
+router.get('/session', async (req, res) => {
   const members = await benefits.listMembers(pool, 40);
   res.json({ member: req.user, sampleMembers: members });
 });
 
-app.get('/api/claims/open', async (req, res) => {
+router.get('/claims/open', async (req, res) => {
   try {
     const claims = await benefits.getOpenClaims(pool, req.user);
     res.json({ member: req.user, claims });
@@ -88,7 +62,7 @@ app.get('/api/claims/open', async (req, res) => {
   }
 });
 
-app.get('/api/claims/summary', async (req, res) => {
+router.get('/claims/summary', async (req, res) => {
   try {
     const planYear = req.query.planYear ? parseInt(req.query.planYear, 10) : null;
     const summary = await benefits.getClaimsSummary(pool, req.user, planYear);
@@ -99,7 +73,7 @@ app.get('/api/claims/summary', async (req, res) => {
   }
 });
 
-app.get('/api/claims/search', async (req, res) => {
+router.get('/claims/search', async (req, res) => {
   try {
     const claims = await benefits.searchClaims(pool, req.user, req.query.q || '');
     res.json({ member: req.user, claims });
@@ -109,12 +83,12 @@ app.get('/api/claims/search', async (req, res) => {
   }
 });
 
-app.get('/api/plan', (req, res) => {
+router.get('/plan', (req, res) => {
   const plan = benefits.getPlanDetails(req.query.type || 'medical');
   res.json({ member: req.user, plan });
 });
 
-app.get('/api/deductible', async (req, res) => {
+router.get('/deductible', async (req, res) => {
   try {
     const planYear = req.query.planYear ? parseInt(req.query.planYear, 10) : new Date().getFullYear();
     const deductible = await benefits.getDeductibleStatus(pool, req.user, planYear);
@@ -125,7 +99,7 @@ app.get('/api/deductible', async (req, res) => {
   }
 });
 
-app.post('/api/documents/:type', async (req, res) => {
+router.post('/documents/:type', async (req, res) => {
   try {
     const type = req.params.type;
     const planYear = req.body.planYear || new Date().getFullYear();
@@ -177,7 +151,7 @@ app.post('/api/documents/:type', async (req, res) => {
       document: {
         type,
         filename,
-        url: `/documents/${filename}`,
+        url: `/member/documents/${filename}`,
       },
     });
   } catch (err) {
@@ -186,7 +160,7 @@ app.post('/api/documents/:type', async (req, res) => {
   }
 });
 
-app.post('/api/bot', async (req, res) => {
+router.post('/bot', async (req, res) => {
   const prompt = String(req.body.prompt || '').toLowerCase();
   const rawPrompt = String(req.body.prompt || '');
 
@@ -222,7 +196,7 @@ app.post('/api/bot', async (req, res) => {
   }
 });
 
-app.get('/api/enrollment/compare', async (req, res) => {
+router.get('/enrollment/compare', async (req, res) => {
   try {
     const referenceYear = req.query.planYear
       ? parseInt(req.query.planYear, 10)
@@ -235,6 +209,4 @@ app.get('/api/enrollment/compare', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[member-benefits-app] listening on ${PORT}`);
-});
+module.exports = { router, DOCUMENT_DIR };

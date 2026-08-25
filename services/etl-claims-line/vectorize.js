@@ -29,14 +29,14 @@ async function startJob(phase, targetTable) {
 
 async function completeJob(jobId, stats) {
   await pool.query(
-    'CALL sp_etl_complete_job($1, $2, $3, $4, $5)',
+    'SELECT sp_etl_complete_job($1, $2, $3, $4, $5)',
     [jobId, stats.processed, stats.created, stats.updated, stats.deleted],
   );
 }
 
 async function failJob(jobId, error) {
   await pool.query(
-    'CALL sp_etl_fail_job($1, $2)',
+    'SELECT sp_etl_fail_job($1, $2)',
     [jobId, String(error)],
   );
 }
