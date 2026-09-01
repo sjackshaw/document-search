@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { embedQuery } = require('../../../../lib/embedding');
 const { detectEscalation } = require('../escalation');
+const { parseQuery } = require('../queryParser');
 const benefits = require('../member-benefits');
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://ollama:11434';
@@ -83,10 +84,20 @@ async function retrieveContext(question) {
   const queryEmbedding = await embedQuery(question);
   const embeddingLiteral = `[${queryEmbedding.join(',')}]`;
 
-  const result = await pool.query(
-    'SELECT * FROM sp_search_all($1, $2)',
-    [embeddingLiteral, TOP_K]
-  );
+  // If the question names a specific benefits category (e.g. "dental"),
+  // restrict retrieval to that category so a handful of matching chunks
+  // aren't crowded out of the top-K by the much larger general web corpus.
+  const { category } = parseQuery(question);
+
+  const result = category
+    ? await pool.query(
+        'SELECT * FROM sp_search_all_filtered($1, $2, $3)',
+        [embeddingLiteral, TOP_K, category]
+      )
+    : await pool.query(
+        'SELECT * FROM sp_search_all($1, $2)',
+        [embeddingLiteral, TOP_K]
+      );
 
   // Build context string from chunks, respecting max length
   const sources = [];
