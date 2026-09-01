@@ -2,7 +2,7 @@
 
 This document describes the current technology choices for the document-search project. Update it whenever dependencies, infrastructure, or tooling changes.
 
-**Last updated:** August 4, 2026
+**Last updated:** August 24, 2026 — `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service (see "Application Services" and "Containerization" below).
 
 ---
 
@@ -10,7 +10,7 @@ This document describes the current technology choices for the document-search p
 
 | Item | Value |
 |---|---|
-| **Node.js** | 20 LTS (Alpine base image: `node:20-alpine`) |
+| **Node.js** | 22 (base image: `node:22-slim` for `portal`; `node:22` for `etl-claims-line`) |
 | **Python** | 3 (used for synthetic data generation scripts only) |
 
 ---
@@ -19,9 +19,17 @@ This document describes the current technology choices for the document-search p
 
 | Service | Port | Framework | Key Dependencies |
 |---|---|---|---|
-| `app` | 3000 | Express 4.x | `pg`, `@xenova/transformers` |
-| `genai-search` | 3001 | Express 4.x | `pg`, `@xenova/transformers`, `uuid` |
-| `member-benefits-app` | 3002 | Express 4.x | `pg` |
+| `portal` | 3000 (`${PORTAL_HOST_PORT}`) | Express 4.x | `pg`, `@xenova/transformers` |
+
+`portal` (`services/portal/`) is a single Node.js process serving three logical concerns through separate Express routers, all mounted on one app and one container:
+
+| Router | Mounted at | Responsibility |
+|---|---|---|
+| `src/routes/search.js` | `/api/*` | Document/web search, admin content management, ETL job history (formerly `app`) |
+| `src/routes/chat.js` | `/api/chat`, `/api/ask`, `/api/feedback`, `/api/analytics/*`, `/api/chat/members` | RAG chat + analytics (formerly `genai-search`); optionally personalizes answers with a member's claims context |
+| `src/routes/member.js` | `/api/member/*` | Claims, plan details, deductible, document generation, rule-based bot, enrollment comparison (formerly `member-benefits-app`) |
+
+Static UI is served from `services/portal/public/`: a tab shell at `/`, the search UI at `/search`, the chat UI at `/chat` (+ `/chat/analytics.html`), the member UI at `/member`, and the admin dashboard at `/admin.html`.
 
 ---
 
@@ -44,9 +52,9 @@ This document describes the current technology choices for the document-search p
 | **Extension** | `pgvector` (HNSW vector indexing) |
 | **Vector dimensions** | 384 (matching `bge-small-en-v1.5`) |
 | **Distance metric** | Cosine similarity (`vector_cosine_ops`, `<=>` operator) |
-| **Connection pooling** | `node-postgres` (`pg`) Pool per service |
-| **Port mapping** | `5433 → 5432` (host → container) |
-| **Schema init** | `infra/db/init/` — 13 SQL scripts executed in order on first start |
+| **Connection pooling** | `node-postgres` (`pg`) Pool per service (`portal` uses a single shared pool across all three routers) |
+| **Port mapping** | `5433 → 5432` (host → container), overridable via `POSTGRES_HOST_PORT` |
+| **Schema init** | `infra/db/init/` — 14 SQL scripts executed in order on first start |
 
 ### Schema overview
 
@@ -54,9 +62,10 @@ This document describes the current technology choices for the document-search p
 |---|---|
 | `documents`, `document_pages`, `document_chunks` | PDF document hierarchy and chunks |
 | `web_sources`, `web_sections`, `web_chunks` | Web page hierarchy and chunks |
-| `claims`, `claims_logs` | Member claims and activity log |
+| `claims`, `claims_logs` | Member claims and activity log (both have unused `vector(384)` embedding columns — no search procedure reads them yet) |
 | `chat_logs`, `chat_feedback` | RAG chat query history, escalation signals, and thumbs ratings |
 | `etl_job_logs` | ETL run history |
+| `etl_change_logs` | Field-level change log for the claims ETL's change-detection step (added 2026-08-24; was documented here previously but the table/procedure didn't actually exist until this date) |
 | Stored procedures (`sp_*`) | Search, upsert, ETL job logging, and analytics aggregation |
 
 ---
@@ -105,20 +114,23 @@ This document describes the current technology choices for the document-search p
 | Item | Value |
 |---|---|
 | **Orchestration** | Docker Compose (split into per-service compose files) |
-| **Build contexts** | Root context for services using `lib/` (`app`, `genai-search`, ETL services) |
-| **Compose files** | `docker-compose.postgres.yml`, `docker-compose.app.yml`, `docker-compose.etl-documents.yml`, `docker-compose.etl-webcrawl.yml`, `docker-compose.genai-search.yml`, `docker-compose.etl-claims-line.yml`, `docker-compose.member-benefits-app.yml` |
-| **Volumes** | `pgdata` (PostgreSQL data), `ollama-models` (downloaded LLM weights), `genai-model-cache` (ONNX embedding model cache) |
-| **Generated docs** | `data-output/member-benefits-docs` → `/usr/src/app/generated-docs` (bind mount) |
+| **Build contexts** | Root context for services using `lib/` (`portal`, ETL services) |
+| **Compose files** | `docker-compose.postgres.yml`, `docker-compose.ollama.yml`, `docker-compose.portal.yml`, `docker-compose.etl-documents.yml`, `docker-compose.etl-webcrawl.yml`, `docker-compose.etl-claims-line.yml` |
+| **Host ports** | Parameterized via `POSTGRES_HOST_PORT` (default `5433`), `OLLAMA_HOST_PORT` (default `11434`), `PORTAL_HOST_PORT` (default `3000`) — lets a second stack run side-by-side on alternate ports for review/demo |
+| **Volumes** | `pgdata` (PostgreSQL data), `ollama-models` (downloaded LLM weights), `model-cache` (ONNX embedding model cache, one per service that embeds) |
+| **Generated docs** | `data-output/member-benefits-docs` → `/repo/services/portal/generated-docs` (bind mount) |
 
 ---
 
 ## Frontend
 
-| Service | Static files | Notes |
+| Path (all served by `portal`) | Static files | Notes |
 |---|---|---|
-| `app` | `services/app/public/` | Search UI (`index.html`) and Admin UI (`admin.html`) |
-| `genai-search` | `services/genai-search/public/` | Chat UI (`index.html`) and Analytics Dashboard (`analytics.html`) |
-| `member-benefits-app` | `services/member-benefits-app/src/public/` | Member benefits UI (`index.html`) |
+| `/` | `services/portal/public/index.html` | Tab shell — embeds `/search`, `/chat`, `/member` via same-origin iframes |
+| `/search` | `services/portal/public/search/` | Search UI (`index.html`) |
+| `/admin.html` | `services/portal/public/admin.html` | Admin UI |
+| `/chat` | `services/portal/public/chat/` | Chat UI (`index.html`, includes a member-selection dropdown) and Analytics Dashboard (`analytics.html`) |
+| `/member` | `services/portal/public/member/` | Member benefits UI (`index.html`) |
 
 ---
 

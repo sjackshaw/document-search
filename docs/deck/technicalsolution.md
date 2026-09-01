@@ -61,6 +61,8 @@ sequenceDiagram
 
 All three applications authenticate through the organisation's existing **Okta → PingFederate** SSO. The member benefits assistant propagates the authenticated member's identity to enforce row-level data access — each member sees only their own claims and documents.
 
+Benefits Chat has since been extended so it can also answer a member's personal questions (open claims, deductible status) in the same conversation as general benefits questions, rather than requiring a separate tool — the PoC demonstrates this by letting the demo operator select which member's context to include. The Member Benefits Assistant remains the primary, fully-featured self-service surface for claims and document generation; the chat enhancement shows what a single, unified conversational entry point could look like in production once tied to real member authentication.
+
 ### Unified Search Index
 
 All three applications draw from a single shared search index backed by **PostgreSQL with the pgvector extension**. The index holds:

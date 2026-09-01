@@ -1,6 +1,6 @@
 # System Architecture
 
-All services run locally under Docker Compose. The three ETL containers are short-lived batch jobs; the five long-running services (PostgreSQL, Ollama, and the three application servers) stay up after `npm run setup`.
+All services run locally under Docker Compose. The three ETL containers are short-lived batch jobs. Search, RAG chat, and the member benefits assistant are unified into a single `portal` service/container; PostgreSQL and Ollama are the only other long-running containers.
 
 ```mermaid
 graph LR
@@ -24,10 +24,12 @@ graph LR
         ollama["Ollama\nlocalhost:11434"]
     end
 
-    subgraph Apps["Application Services"]
-        app["app\nSearch UI + API\nlocalhost:3000"]
-        genai["genai-search\nRAG Chat + Analytics\nlocalhost:3001"]
-        member["member-benefits-app\nMember Benefits\nlocalhost:3002"]
+    subgraph Portal["portal (single container) — localhost:3000"]
+        search_ui["/search\nDocument + web search UI"]
+        chat_ui["/chat\nRAG chat UI (+ member dropdown)"]
+        member_ui["/member\nMember benefits UI"]
+        admin_ui["/admin.html\nContent admin"]
+        shell["/\nTab shell (embeds the three UIs via iframe)"]
     end
 
     subgraph Users["Users"]
@@ -40,31 +42,46 @@ graph LR
 
     etl_docs -- "upsert document chunks\n(HNSW embeddings)" --> postgres
     etl_web -- "upsert web chunks\n(HNSW embeddings)" --> postgres
-    etl_claims -- "upsert claims\n(HNSW embeddings)" --> postgres
+    etl_claims -- "upsert claims + claims_logs\n(HNSW embeddings)" --> postgres
 
-    app -- "vector search\n(sp_search_documents,\nsp_search_web)" --> postgres
-    genai -- "vector search\n(sp_search_all)\nchat logs + feedback" --> postgres
-    member -- "claims queries\nchat logs" --> postgres
+    search_ui -- "vector search\n(sp_search_documents, sp_search_web,\nsp_search_all)" --> postgres
+    chat_ui -- "vector search\n(sp_search_all)\n+ member claims lookup (optional)\nchat logs + feedback" --> postgres
+    member_ui -- "claims queries\nchat_logs (bot)" --> postgres
 
-    genai -- "stream chat\n(qwen2.5:3b)" --> ollama
+    chat_ui -- "stream chat\n(qwen2.5:3b)" --> ollama
 
-    browser --> app
-    browser --> genai
-    browser --> member
+    browser --> shell
+    shell --> search_ui
+    shell --> chat_ui
+    shell --> member_ui
+    browser --> admin_ui
 ```
 
 ## Port Reference
 
 | Container | Host Port | Notes |
 |---|---|---|
-| `postgres` | `5433` | Maps to container port `5432` |
-| `app` | `3000` | Search UI served at `/`; Admin UI at `/admin.html` |
-| `genai-search` | `3001` | Chat UI at `/`; Analytics dashboard at `/analytics.html` |
-| `member-benefits-app` | `3002` | Member UI at `/`; all `/api/*` routes require `x-api-key` |
-| `ollama` | `11434` | Internal; used only by `genai-search` |
+| `postgres` | `5433` (`${POSTGRES_HOST_PORT}`) | Maps to container port `5432` |
+| `portal` | `3000` (`${PORTAL_HOST_PORT}`) | Single container serving all three UIs and their APIs — see paths below |
+| `ollama` | `11434` (`${OLLAMA_HOST_PORT}`) | Internal; used only by the chat routes in `portal` |
 | `etl-documents` | — | Batch job; exits after each cron run |
 | `etl-webcrawl` | — | Batch job; exits after each cron run |
 | `etl-claims-line` | — | Batch job; exits after each cron run |
+
+All three host ports are parameterized via environment variables (defaulting to the values above) so a second `portal` stack can be run side-by-side on alternate ports for review/demo purposes without editing the Compose files.
+
+### `portal` paths
+
+| Path | Purpose |
+|---|---|
+| `/` | Unified tab shell — embeds `/search`, `/chat`, and `/member` via same-origin iframes |
+| `/search` | Document + web search UI (pure vector search, no personalization) |
+| `/chat` | RAG chat UI; includes a "Chatting as" member dropdown for demo personalization |
+| `/member` | Member benefits UI (claims, plan details, deductible, document generation, rule-based bot) |
+| `/admin.html` | Content admin (documents + web sources), gated by `X-Admin-Key` when `ADMIN_KEY` is set |
+| `/api/*` | Search + admin API |
+| `/api/chat`, `/api/ask`, `/api/feedback`, `/api/analytics/*`, `/api/chat/members` | Chat API |
+| `/api/member/*` | Member-scoped API, gated by `X-API-Key` when `API_KEY` is set and by member resolution |
 
 ## Service Dependencies
 
@@ -72,10 +89,8 @@ graph LR
 graph TD
     postgres["postgres\n(healthcheck)"]
     ollama["ollama\n(healthcheck)"]
-    app["app"] --> postgres
-    genai["genai-search"] --> postgres
-    genai --> ollama
-    member["member-benefits-app"] --> postgres
+    portal["portal"] --> postgres
+    portal --> ollama
     etl_docs["etl-documents"] --> postgres
     etl_web["etl-webcrawl"] --> postgres
     etl_claims["etl-claims-line"] --> postgres
