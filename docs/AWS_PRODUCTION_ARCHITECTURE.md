@@ -3,6 +3,7 @@
 This document maps the current proof-of-concept (PoC) stack — built to run on a single MacBook — to the recommended AWS services for a production deployment.
 > **2026-08-24 update:** The PoC's `app`, `genai-search`, and `member-benefits-app` services were merged into a single `portal` service/container (one Node.js process, three Express routers: `search.js`, `chat.js`, `member.js`). This section still recommends splitting search, chat, and member benefits into separate deployable units in AWS (see "Compute" below) because their production resource profiles differ significantly — chat is Bedrock-bound, search is embedding+DB-bound, and the member API is DB-bound with document-generation spikes. The PoC's single-container simplicity does not need to carry over to production, but starting from one deployable unit and splitting later (by route group, matching `services/portal/src/routes/`) is also a reasonable, lower-effort path if independent scaling isn't needed immediately.
 > **PoC diagrams:** [System Architecture](diagrams/system-architecture.md) \u00b7 [Database Schema](diagrams/database-schema.md) \u00b7 [ETL Pipeline](diagrams/etl-pipeline.md)
+> **Detailed cost breakdown:** see [AWS_COST_PROJECTION.md](AWS_COST_PROJECTION.md) for alternate configurations, annualized totals, and cost-driven key decisions.
 
 ---
 
@@ -409,6 +410,8 @@ EventBridge Scheduler or EventBridge bus -> Step Functions (Claims ETL) ->
 ---
 
 ## Cost Estimates (Monthly)
+
+> See [AWS_COST_PROJECTION.md](AWS_COST_PROJECTION.md) for the full breakdown, alternate stack configurations, annualized totals, and the rationale behind each cost-driven decision.
 
 Estimates for a moderate workload: ~10K chat queries/day, ~2K document searches/day, ~5K documents indexed. LLM costs use Claude Sonnet 5 standard pricing; an introductory rate of $2/$10 per MTok applies through August 31, 2026.
 
