@@ -78,7 +78,7 @@ See the [diagrams/](diagrams/) folder for full visual diagrams:
 - The document ETL does not parse PDFs at runtime. It reads `services/etl-documents/data/manifest.json`, which is generated alongside the PDFs.
 - The web ETL reads `services/etl-webcrawl/data/web_manifest.json` and indexes sectioned HTML content.
 - Both ETL pipelines chunk text, generate BGE embeddings through `@xenova/transformers`, and load records into pgvector-backed tables.
-- The chat routes embed the incoming question, retrieve the top matching chunks from both document and web sources, and send grounded context to Ollama.
+- The chat routes embed the incoming question, detect a benefits category via `queryParser.js` (e.g. "dental", "401k") when present, retrieve the top matching chunks from both document and web sources (scoped to that category when detected, otherwise unscoped), and send grounded context to Ollama.
 - Chat requests may optionally include a `memberEmail` (selected via a dropdown in the chat UI, populated from `GET /api/chat/members`). When present, the member's open claims, claims summary, and deductible status are fetched with plain SQL and appended to the same prompt so the assistant can answer personal questions in the same conversation. This is a demo convenience with **no authentication** — see the Security review for the corresponding finding.
 
 ### Member Benefits Assistant

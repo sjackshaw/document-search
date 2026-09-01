@@ -22,7 +22,13 @@ sequenceDiagram
     Portal->>Embedding: embedQuery(question)<br/>prefix: "Represent this sentence for searching relevant passages: "
     Embedding-->>Portal: 384-dimensional float vector
 
-    Portal->>PG: sp_search_all(embedding, top_k=10)<br/>UNION ALL document_chunks + web_chunks<br/>ORDER BY cosine distance
+    Portal->>Portal: parseQuery(question)<br/>→ detect benefits category (e.g. "dental"), if any
+
+    alt category detected
+        Portal->>PG: sp_search_all_filtered(embedding, top_k=10, category)<br/>UNION ALL document_chunks + web_chunks, WHERE category matches<br/>ORDER BY cosine distance
+    else no category detected
+        Portal->>PG: sp_search_all(embedding, top_k=10)<br/>UNION ALL document_chunks + web_chunks<br/>ORDER BY cosine distance
+    end
     PG-->>Portal: up to 10 ranked chunks<br/>(title, category, source_type, ref, chunk_text, distance)
 
     opt memberEmail provided

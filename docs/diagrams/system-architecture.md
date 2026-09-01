@@ -45,7 +45,7 @@ graph LR
     etl_claims -- "upsert claims + claims_logs\n(HNSW embeddings)" --> postgres
 
     search_ui -- "vector search\n(sp_search_documents, sp_search_web,\nsp_search_all)" --> postgres
-    chat_ui -- "vector search\n(sp_search_all)\n+ member claims lookup (optional)\nchat logs + feedback" --> postgres
+    chat_ui -- "vector search\n(sp_search_all /\nsp_search_all_filtered by category)\n+ member claims lookup (optional)\nchat logs + feedback" --> postgres
     member_ui -- "claims queries\nchat_logs (bot)" --> postgres
 
     chat_ui -- "stream chat\n(qwen2.5:3b)" --> ollama

@@ -3,6 +3,7 @@
 **Date**: March 16, 2026  
 **Last reviewed**: August 4, 2026 — PoC code findings remain open and accurate; Section 10 (Production Architecture) updated to reflect current AWS doc state.  
 **2026-08-24 update**: `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service (`services/portal/`). File references to `services/app/src/index.js` and `services/genai-search/src/index.js` below now correspond to `services/portal/src/routes/search.js` and `services/portal/src/routes/chat.js` respectively. Finding 1.2 (model loaded 3x) is now more accurate as loaded 3x total (once in `portal`, once each in `etl-documents` and `etl-webcrawl`), down from 4x. A new prompt-engineering consideration was added: chat can now optionally inject a member's own claims context (see "Member Context Injection" under Section 5).  
+**2026-09-01 update**: Finding 3.4 is now partially resolved — `retrieveContext()` in `chat.js` runs the question through `queryParser.js`'s `parseQuery()` and calls `sp_search_all_filtered` (scoped by category) whenever a benefits category is detected, falling back to the unfiltered `sp_search_all` otherwise. This fixes cases where a small number of relevant document chunks (e.g. a specific dental plan guide) were being crowded out of the top-K by the much larger web-crawl corpus. The suggestion to also route by `source_type` (document vs. web) remains open.  
 **Scope**: Embedding model, chunking strategy, RAG pipeline, LLM integration, prompt engineering, search quality, session management, streaming implementation
 
 > **Diagrams:** [RAG Chat Request Sequence](diagrams/rag-chat-sequence.md) · [ETL Pipeline](diagrams/etl-pipeline.md) · [System Architecture](diagrams/system-architecture.md)
@@ -154,9 +155,11 @@ Because of chunk overlap, consecutive chunks from the same page often appear in 
 
 **Recommendation:** Deduplicate by checking if a chunk's text is mostly contained in an already-selected chunk, or deduplicate by `(document_id, page_id, chunk_index ± 1)`.
 
-### Finding 3.4 — LOW: Retrieval always queries all sources (no source-type routing)
+### Finding 3.4 — LOW: ~~Retrieval always queries all sources~~ — RESOLVED for category, open for source-type routing
 
-The GenAI search always calls `sp_search_all` which unions documents and web chunks. For certain queries (e.g., "show me the 401k enrollment form PDF"), limiting to `source_type = 'document'` would produce better results. The `queryParser.js` already extracts categories — it could also detect source-type intent.
+**Update (2026-09-01):** `retrieveContext()` now calls `parseQuery(question)` and, when a benefits category is detected (e.g. "dental", "401k"), queries `sp_search_all_filtered` scoped to that category instead of the unfiltered `sp_search_all`. This directly addresses the failure mode where a handful of relevant chunks from a specific document were outranked in the merged top-K by the much larger web-crawl corpus.
+
+Still open: for certain queries (e.g., "show me the 401k enrollment form PDF"), limiting to `source_type = 'document'` would produce better results than searching both documents and web chunks. `queryParser.js` does not yet detect source-type intent, only category.
 
 ---
 
@@ -381,7 +384,7 @@ The AWS Production Architecture document is **exceptionally thorough**:
 | 2.3 | **LOW** | Page/section embeddings truncated to first 512 chars |
 | 2.4 | **LOW** | No metadata in chunk text for embedding enrichment |
 | 3.3 | **LOW** | No deduplication of overlapping chunks in context |
-| 3.4 | **LOW** | No source-type routing in retrieval |
+| 3.4 | **LOW** | ~~No category routing in retrieval~~ RESOLVED 2026-09-01; source-type routing still open |
 | 5.2 | **LOW** | Context format not numbered — hurts citation accuracy |
 | 6.2 | **LOW** | UNION ALL search is not index-optimal |
 | 7.3 | **LOW** | In-memory sessions lost on restart |

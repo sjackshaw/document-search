@@ -34,6 +34,7 @@ npm run teardown
 | [docs/README.md](docs/README.md) | Full setup, API reference, data-flow diagrams, and environment variable reference |
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Current technology stack — runtime, frameworks, database, models, and tooling |
 | [docs/AWS_PRODUCTION_ARCHITECTURE.md](docs/AWS_PRODUCTION_ARCHITECTURE.md) | AWS migration path: PoC-to-production mapping with service recommendations and cost estimates |
+| [docs/AWS_COST_PROJECTION.md](docs/AWS_COST_PROJECTION.md) | Detailed monthly/annual AWS cost projection, alternate configurations, and key cost decisions |
 | [docs/diagrams/](docs/diagrams/) | Mermaid diagrams: system architecture, database schema, RAG chat sequence, ETL pipeline |
 | [docs/AI_RAG_REVIEW.md](docs/AI_RAG_REVIEW.md) | Review of the embedding model, chunking strategy, RAG pipeline, and prompt engineering |
 | [docs/DATA_REVIEW.md](docs/DATA_REVIEW.md) | Schema design, pgvector configuration, stored-procedure analysis, and ETL patterns |
