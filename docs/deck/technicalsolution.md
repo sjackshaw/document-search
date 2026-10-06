@@ -2,7 +2,7 @@
 
 **Audience:** Executive and Technical Leadership  
 **Date:** August 2026  
-**Companion documents:** [The Problem](problem.md) · [AWS Production Architecture](../AWS_PRODUCTION_ARCHITECTURE.md)
+**Companion documents:** [The Problem](problem.md) · [How AI Is Used](aiusage.md) · [Solution Benefits](benefits.md) · [AWS Production Architecture](../AWS_PRODUCTION_ARCHITECTURE.md) · [Slide Deck](presentation.md)
 
 ---
 
