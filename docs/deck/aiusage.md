@@ -2,7 +2,7 @@
 
 **Audience:** Executive and Technical Leadership  
 **Date:** August 2026  
-**Companion documents:** [Technical Solution](technicalsolution.md) · [The Problem](problem.md) · [AWS Production Architecture](../AWS_PRODUCTION_ARCHITECTURE.md)
+**Companion documents:** [Technical Solution](technicalsolution.md) · [The Problem](problem.md) · [Solution Benefits](benefits.md) · [AWS Production Architecture](../AWS_PRODUCTION_ARCHITECTURE.md) · [Slide Deck](presentation.md)
 
 ---
 

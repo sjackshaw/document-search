@@ -1,7 +1,8 @@
 # The Problem — Why We Built This
 
 **Audience:** Executive and Technical Leadership  
-**Date:** August 2026
+**Date:** August 2026  
+**Companion documents:** [Technical Solution](technicalsolution.md) · [How AI Is Used](aiusage.md) · [Solution Benefits](benefits.md) · [Slide Deck](presentation.md)
 
 ---
 

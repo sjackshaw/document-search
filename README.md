@@ -40,3 +40,4 @@ npm run teardown
 | [docs/DATA_REVIEW.md](docs/DATA_REVIEW.md) | Schema design, pgvector configuration, stored-procedure analysis, and ETL patterns |
 | [docs/CODE_QUALITY_REVIEW.md](docs/CODE_QUALITY_REVIEW.md) | Code quality findings: service structure, Docker, error handling, and test coverage |
 | [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) | OWASP Top 10 security analysis across all services and infrastructure |
+| [docs/deck/](docs/deck/) | Executive presentation materials: the problem, the solution, AI usage, and cost/benefits — including [presentation.md](docs/deck/presentation.md), a slide-ready Marp deck exportable to PowerPoint |
