@@ -105,7 +105,7 @@ Three automated ETL pipelines keep the search index current — no manual re-ind
 | Web ETL | Umbraco CMS | Benefit guides, FAQs, articles |
 | Claims ETL | Carrier / TPA feed | Claims lines, adjudication status, activity logs |
 
-Each pipeline chunks text, generates embeddings, and upserts into the shared vector index on a schedule — idempotent and incremental.
+Each pipeline chunks text, generates embeddings, and upserts into the shared vector index on an **Amazon EventBridge** schedule — idempotent and incremental.
 
 ---
 
@@ -143,9 +143,9 @@ Two ML models do the heavy lifting; two deterministic, auditable rule systems ha
 | Embedding | BGE-small, CPU, in-process (384d) | Cohere Embed v3 via Bedrock (1024d) |
 | Language model | Qwen 2.5 3B, local Ollama | Claude Sonnet 5 via Bedrock |
 | Vector store | PostgreSQL + pgvector | OpenSearch Serverless or Aurora + pgvector |
-| Compute | Docker Compose on a laptop | Amazon EKS (Lambda fallback) |
+| Compute | Docker Compose on a laptop | AWS Lambda (serverless) |
 | Auth | Open in local dev; API key on member app | Okta → PingFederate → ALB OIDC |
-| Cost | ~$0 (local) | ~$815/mo production · ~$175/mo dev/test |
+| Cost | ~$0 (local) | ~$645/mo production · ~$110/mo dev/test |
 
 ---
 
@@ -153,11 +153,10 @@ Two ML models do the heavy lifting; two deterministic, auditable rule systems ha
 
 | Configuration | Production (monthly) |
 |---|---|
-| EKS + Aurora + Claude Sonnet 5 (recommended) | ~$815 |
-| EKS + Aurora + Claude Haiku 4.5 (cost-optimised) | ~$615 |
-| Lambda + Aurora + Claude Sonnet 5 (serverless fallback) | ~$645 |
+| Lambda + Aurora + Claude Sonnet 5 (recommended) | ~$645 |
+| Lambda + Aurora + Claude Haiku 4.5 (cost-optimised) | ~$445 |
 
-**~$9,800/year** in production — primarily fixed infrastructure cost that scales with *query volume*, not headcount.
+**~$7,740/year** in production — primarily fixed infrastructure cost that scales with *query volume*, not headcount.
 
 ---
 
@@ -179,9 +178,9 @@ Two ML models do the heavy lifting; two deterministic, auditable rule systems ha
 |---|---|
 | Enterprise AI Search (Glean, Coveo, Lucidworks) | ~$300,000 – $360,000 |
 | HR / Benefits AI Chatbot (Leena AI, Moveworks) | ~$120,000 – $240,000 |
-| **This solution (AWS, in-house)** | **~$11,000** |
+| **This solution (AWS, in-house)** | **~$9,000** |
 
-**5-year total: ~$49,000 (this solution) vs. $600,000–$1,500,000 (SaaS alternatives)**
+**5-year total: ~$45,000 (this solution) vs. $600,000–$1,500,000 (SaaS alternatives)**
 
 ---
 
@@ -214,7 +213,7 @@ Two ML models do the heavy lifting; two deterministic, auditable rule systems ha
 
 ## Production Architecture on AWS
 
-- **Compute**: Amazon EKS (Kubernetes); Lambda + API Gateway as the approved fallback
+- **Compute**: AWS Lambda + API Gateway (fully serverless); Amazon EventBridge for scheduled ETL orchestration
 - **Data**: Aurora PostgreSQL + pgvector (or OpenSearch Serverless); S3 for staging and generated documents
 - **Auth**: Existing Okta → PingFederate SSO via ALB OIDC — no new auth infrastructure
 - **Security**: Private VPC subnets, AWS WAF, Secrets Manager, CloudTrail, GuardDuty
@@ -226,8 +225,8 @@ Two ML models do the heavy lifting; two deterministic, auditable rule systems ha
 | Phase | Deliverable |
 |---|---|
 | 1 | Data layer: Aurora + S3; SharePoint/Umbraco connectors |
-| 2 | ETL pipelines against live sources |
-| 3 | Search API live on EKS — early member value |
+| 2 | ETL pipelines against live sources, orchestrated by Amazon EventBridge |
+| 3 | Search API live on Lambda — early member value |
 | 4 | RAG chat live with Bedrock — major capability |
 | 5 | Member benefits assistant with real claims + Okta auth — full value |
 | 6 | Production hardening: WAF, GuardDuty, CloudTrail, CI/CD, load testing |
@@ -239,7 +238,7 @@ Each phase is independently deliverable — member value starts accruing after P
 ## Recommendation
 
 - The proof of concept demonstrates the technology is mature, deployable, and cost-predictable
-- Direct running cost (~$815/mo) is a fraction of comparable SaaS platforms or a contractor build
+- Direct running cost (~$645/mo) is a fraction of comparable SaaS platforms or a contractor build
 - No new licensing, authentication, or content-system investment required
 - Recommend proceeding to **Phase 1** (data layer + connector setup) to begin the production path
 
