@@ -46,7 +46,8 @@
       color: #57606a;
     }
 
-    .member-picker select {
+    .member-picker select,
+    .member-picker input {
       font: inherit;
       font-size: 13px;
       padding: 5px 8px;
@@ -56,6 +57,8 @@
       color: #24292f;
       max-width: 220px;
     }
+
+    .member-picker input { width: 150px; }
 
     .member-banner {
       max-width: 860px;
@@ -229,6 +232,7 @@
     <div style="display:flex;gap:14px;align-items:center">
       <div class="member-picker">
         <label for="member-select">Chatting as</label>
+        <input type="text" id="member-search" placeholder="Search name or email…">
         <select id="member-select">
           <option value="">Documents only (no member)</option>
         </select>
@@ -260,10 +264,12 @@
     const sendBtn = document.getElementById('send-btn');
     const newChatBtn = document.getElementById('new-chat-btn');
     const memberSelect = document.getElementById('member-select');
+    const memberSearch = document.getElementById('member-search');
     const memberBanner = document.getElementById('member-banner');
 
     let sessionId = null;
     let sending = false;
+    let allMembers = [];
 
     function currentMemberEmail() {
       return memberSelect.value || '';
@@ -281,19 +287,47 @@
       }
     }
 
+    // Rebuilds the <option> list from allMembers, filtered by name/email
+    // substring. The currently selected member is always kept in the list
+    // even if it no longer matches the filter, so filtering can't silently
+    // deselect the active member.
+    function renderMemberOptions(filterText) {
+      const query = filterText.trim().toLowerCase();
+      const previousValue = memberSelect.value;
+
+      const matches = query
+        ? allMembers.filter(m => m.memberEmail.toLowerCase().includes(query) || m.memberId.toLowerCase().includes(query))
+        : allMembers;
+      const selected = allMembers.find(m => m.memberEmail === previousValue);
+      const list = selected && !matches.includes(selected) ? [selected, ...matches] : matches;
+
+      memberSelect.innerHTML = '';
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Documents only (no member)';
+      memberSelect.appendChild(blank);
+
+      for (const member of list) {
+        const option = document.createElement('option');
+        option.value = member.memberEmail;
+        option.textContent = `${member.memberId} — ${member.memberEmail}`;
+        memberSelect.appendChild(option);
+      }
+
+      if (previousValue && list.some(m => m.memberEmail === previousValue)) {
+        memberSelect.value = previousValue;
+      }
+    }
+
     async function loadMembers() {
       try {
         const res = await fetch('/api/chat/members');
         if (!res.ok) return;
         const body = await res.json();
+        allMembers = body.members || [];
         const saved = localStorage.getItem('benefitsMemberEmail') || '';
-        for (const member of body.members || []) {
-          const option = document.createElement('option');
-          option.value = member.memberEmail;
-          option.textContent = `${member.memberId} — ${member.memberEmail}`;
-          memberSelect.appendChild(option);
-        }
-        if (saved && body.members?.some(m => m.memberEmail === saved)) {
+        renderMemberOptions('');
+        if (saved && allMembers.some(m => m.memberEmail === saved)) {
           memberSelect.value = saved;
         }
       } catch {
@@ -301,6 +335,10 @@
       }
       updateMemberBanner();
     }
+
+    memberSearch.addEventListener('input', () => {
+      renderMemberOptions(memberSearch.value);
+    });
 
     memberSelect.addEventListener('change', () => {
       if (memberSelect.value) {
