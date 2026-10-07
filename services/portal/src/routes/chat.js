@@ -17,6 +17,13 @@ const TOP_K = parseInt(process.env.RAG_TOP_K) || 10;
 const MAX_CONTEXT_CHARS = parseInt(process.env.MAX_CONTEXT_CHARS) || 6000;
 const MEMBER_CONTEXT_MAX_CHARS = parseInt(process.env.MEMBER_CONTEXT_MAX_CHARS) || 2000;
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Keeps the model resident in Ollama between requests, avoiding a reload stall after an idle gap
+const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '30m';
+// Caps generation length so answers can't run long on slower hardware
+const OLLAMA_NUM_PREDICT = parseInt(process.env.OLLAMA_NUM_PREDICT) || 400;
+const OLLAMA_OPTIONS = { num_predict: OLLAMA_NUM_PREDICT, temperature: 0.1 };
+// How many prior messages to replay as history; lower = faster prompt processing
+const CHAT_HISTORY_MESSAGES = parseInt(process.env.CHAT_HISTORY_MESSAGES) || 20;
 
 // ── Session store (in-memory) ────────────────────────────────────────
 
@@ -184,6 +191,8 @@ async function chatWithOllama(messages, res) {
       model: OLLAMA_MODEL,
       messages,
       stream: true,
+      options: OLLAMA_OPTIONS,
+      keep_alive: OLLAMA_KEEP_ALIVE,
     }),
   });
 
@@ -288,8 +297,8 @@ router.post('/chat', async (req, res) => {
       { role: 'system', content: SYSTEM_PROMPT },
     ];
 
-    // Include recent conversation history (last 10 exchanges max)
-    const recentHistory = session.messages.slice(-20); // 20 messages = ~10 exchanges
+    // Include recent conversation history (bounded by CHAT_HISTORY_MESSAGES)
+    const recentHistory = session.messages.slice(-CHAT_HISTORY_MESSAGES);
     ollamaMessages.push(...recentHistory);
 
     // Add the new user message with context
@@ -368,7 +377,7 @@ router.post('/ask', async (req, res) => {
 
     const ollamaMessages = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...session.messages.slice(-20),
+      ...session.messages.slice(-CHAT_HISTORY_MESSAGES),
       { role: 'user', content: `${contextSections.join('\n\n')}\n\nQuestion: ${question.trim()}` },
     ];
 
@@ -379,6 +388,8 @@ router.post('/ask', async (req, res) => {
         model: OLLAMA_MODEL,
         messages: ollamaMessages,
         stream: false,
+        options: OLLAMA_OPTIONS,
+        keep_alive: OLLAMA_KEEP_ALIVE,
       }),
     });
 
@@ -415,7 +426,7 @@ router.post('/ask', async (req, res) => {
 
 router.get('/chat/members', async (_req, res) => {
   try {
-    const members = await benefits.listMembers(pool, 50);
+    const members = await benefits.listMembers(pool, 2000);
     res.json({ members });
   } catch (err) {
     console.error('Chat members list error:', err.message);
