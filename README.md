@@ -33,11 +33,4 @@ npm run teardown
 |---|---|
 | [docs/README.md](docs/README.md) | Full setup, API reference, data-flow diagrams, and environment variable reference |
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Current technology stack — runtime, frameworks, database, models, and tooling |
-| [docs/AWS_PRODUCTION_ARCHITECTURE.md](docs/AWS_PRODUCTION_ARCHITECTURE.md) | AWS migration path: PoC-to-production mapping with service recommendations and cost estimates |
-| [docs/AWS_COST_PROJECTION.md](docs/AWS_COST_PROJECTION.md) | Detailed monthly/annual AWS cost projection, alternate configurations, and key cost decisions |
 | [docs/diagrams/](docs/diagrams/) | Mermaid diagrams: system architecture, database schema, RAG chat sequence, ETL pipeline |
-| [docs/AI_RAG_REVIEW.md](docs/AI_RAG_REVIEW.md) | Review of the embedding model, chunking strategy, RAG pipeline, and prompt engineering |
-| [docs/DATA_REVIEW.md](docs/DATA_REVIEW.md) | Schema design, pgvector configuration, stored-procedure analysis, and ETL patterns |
-| [docs/CODE_QUALITY_REVIEW.md](docs/CODE_QUALITY_REVIEW.md) | Code quality findings: service structure, Docker, error handling, and test coverage |
-| [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) | OWASP Top 10 security analysis across all services and infrastructure |
-| [docs/deck/](docs/deck/) | Executive presentation materials: the problem, the solution, AI usage, and cost/benefits — including [presentation.md](docs/deck/presentation.md), a slide-ready Marp deck exportable to PowerPoint |

@@ -145,7 +145,7 @@ Request body for chat endpoints:
 }
 ```
 
-> **No authentication on `memberEmail`:** any caller can supply any member's email and receive that member's claims summary, open claims, and deductible status in the chat answer. This is an intentional demo shortcut for showing personalized chat side-by-side with the member portal's own auth-gated APIs — see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the corresponding finding before using this pattern outside a local demo.
+> **No authentication on `memberEmail`:** any caller can supply any member's email and receive that member's claims summary, open claims, and deductible status in the chat answer. This is an intentional demo shortcut for showing personalized chat side-by-side with the member portal's own auth-gated APIs, and would need a real access-control layer before any production use.
 
 Feedback request body:
 

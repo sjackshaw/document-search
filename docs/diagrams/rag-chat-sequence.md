@@ -63,7 +63,7 @@ sequenceDiagram
 
 ## Member Context (demo personalization)
 
-`memberEmail` is supplied by the user via a "Chatting as" dropdown in the chat UI (populated from `GET /api/chat/members`) and is **not authenticated** — any caller can pass any member's email and receive that member's claims summary, open claims, and deductible status in the answer. This is an intentional demo/PoC shortcut, not a production-ready personalization model; see [SECURITY_REVIEW.md](../SECURITY_REVIEW.md) for the corresponding finding.
+`memberEmail` is supplied by the user via a "Chatting as" dropdown in the chat UI (populated from `GET /api/chat/members`) and is **not authenticated** — any caller can pass any member's email and receive that member's claims summary, open claims, and deductible status in the answer. This is an intentional demo shortcut, not a production-ready personalization model.
 
 ```mermaid
 flowchart LR

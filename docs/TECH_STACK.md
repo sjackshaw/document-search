@@ -2,7 +2,7 @@
 
 This document describes the current technology choices for the document-search project. Update it whenever dependencies, infrastructure, or tooling changes.
 
-**Last updated:** August 24, 2026 — `app`, `genai-search`, and `member-benefits-app` were merged into a single `portal` service (see "Application Services" and "Containerization" below).
+**Last updated:** October 27, 2026 — verified against current `package.json`/Dockerfile/compose/SQL sources; corrected the embedding-model section to reflect that `etl-claims-line` embeds inline rather than through the shared `lib/embedding.js` module.
 
 ---
 
@@ -78,9 +78,11 @@ Static UI is served from `services/portal/public/`: a tab shell at `/`, the sear
 | **Parameters** | ~33M |
 | **Dimensions** | 384 |
 | **Runtime** | ONNX via `@xenova/transformers` (Node.js, CPU-only) |
-| **Shared module** | `lib/embedding.js` — `embedQuery()`, `embed()`, `embedBatch()`, `chunkText()` |
+| **Shared module** | `lib/embedding.js` — `embedQuery()`, `embed()`, `embedBatch()`, `chunkText()`; used by `portal`, `etl-documents`, and `etl-webcrawl` |
 | **Query prefix** | `"Represent this sentence for searching relevant passages: "` applied at query time only (asymmetric BGE design) |
-| **Chunking** | 500 characters, 50-character overlap |
+| **Chunking** | 500 characters, 50-character overlap (`portal`/`etl-documents`/`etl-webcrawl`); `etl-claims-line` embeds each claim/log record as a single short string instead of chunking |
+
+`etl-claims-line` does not use `lib/embedding.js`. It builds from its own directory (not the repo root), so it calls `@xenova/transformers`'s `pipeline()` directly in `services/etl-claims-line/vectorize.js` with the same model and a hardcoded 384-dimension slice size.
 
 ---
 
@@ -91,8 +93,8 @@ Static UI is served from `services/portal/public/`: a tab shell at `/`, the sear
 | **Runtime** | Ollama (container: `ollama/ollama:latest`) |
 | **Default model** | `qwen2.5:3b` |
 | **Port** | `11434` |
-| **Context** | Rolling conversation history per session (30-minute TTL) |
-| **Override** | `OLLAMA_MODEL` environment variable |
+| **Context** | Rolling conversation history per session (30-minute TTL), bounded to the last `CHAT_HISTORY_MESSAGES` (default `20`) messages |
+| **Overrides** | `OLLAMA_MODEL`, `OLLAMA_KEEP_ALIVE` (default `30m`), `OLLAMA_NUM_PREDICT` (default `400`), `CHAT_HISTORY_MESSAGES` environment variables |
 
 ---
 
@@ -114,10 +116,10 @@ Static UI is served from `services/portal/public/`: a tab shell at `/`, the sear
 | Item | Value |
 |---|---|
 | **Orchestration** | Docker Compose (split into per-service compose files) |
-| **Build contexts** | Root context for services using `lib/` (`portal`, ETL services) |
+| **Build contexts** | Repo root for services that require `lib/` (`portal`, `etl-documents`, `etl-webcrawl`); `etl-claims-line` builds from its own service directory and has no access to `lib/` |
 | **Compose files** | `docker-compose.postgres.yml`, `docker-compose.ollama.yml`, `docker-compose.portal.yml`, `docker-compose.etl-documents.yml`, `docker-compose.etl-webcrawl.yml`, `docker-compose.etl-claims-line.yml` |
 | **Host ports** | Parameterized via `POSTGRES_HOST_PORT` (default `5433`), `OLLAMA_HOST_PORT` (default `11434`), `PORTAL_HOST_PORT` (default `3000`) — lets a second stack run side-by-side on alternate ports for review/demo |
-| **Volumes** | `pgdata` (PostgreSQL data), `ollama-models` (downloaded LLM weights), `model-cache` (ONNX embedding model cache, one per service that embeds) |
+| **Volumes** | `pgdata` (PostgreSQL data), `ollama-models` (downloaded LLM weights), `model-cache` (ONNX embedding model cache — declared in `portal`'s and each ETL service's compose file, but since `dev:up` brings them all up as one Compose project, it resolves to a single shared named volume across all four) |
 | **Generated docs** | `data-output/member-benefits-docs` → `/repo/services/portal/generated-docs` (bind mount) |
 
 ---
