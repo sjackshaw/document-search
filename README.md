@@ -2,6 +2,12 @@
 
 Semantic search, RAG chat, and a member-facing benefits assistant over synthetic benefits content. The full documentation lives in [docs/README.md](docs/README.md).
 
+## Screenshots
+
+| Semantic Search | RAG Chat | Member Benefits Bot |
+|---|---|---|
+| ![Search UI](docs/images/search.png) | ![Chat UI](docs/images/chat.png) | ![Member portal](docs/images/member.png) |
+
 ## Quick Start
 
 ```bash

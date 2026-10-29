@@ -1,8 +1,9 @@
 {
   "name": "document-search",
   "version": "1.0.0",
-  "description": "Semantic search over benefits documents — containerized app with ETL pipeline and PostgreSQL + pgvector",
+  "description": "Semantic search, RAG chat, and a member benefits assistant over synthetic benefits content — containerized Node.js app with ETL pipelines, PostgreSQL + pgvector, and Ollama",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev:up": "docker compose -f docker-compose.postgres.yml -f docker-compose.ollama.yml -f docker-compose.portal.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.etl-claims-line.yml up -d",
     "dev:down": "docker compose -f docker-compose.postgres.yml -f docker-compose.ollama.yml -f docker-compose.portal.yml -f docker-compose.etl-documents.yml -f docker-compose.etl-webcrawl.yml -f docker-compose.etl-claims-line.yml down",
